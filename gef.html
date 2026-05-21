@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Motion Core v3 | Production Gesture Engine</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: #0a0c15;
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Sadece test için minimal UI */
+        .debug {
+            position: fixed;
+            bottom: 16px;
+            left: 16px;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(10px);
+            padding: 12px 20px;
+            border-radius: 20px;
+            color: #0ff;
+            font-family: monospace;
+            font-size: 11px;
+            z-index: 200;
+            pointer-events: none;
+            border-left: 3px solid #0ff;
+        }
+
+        .cursor {
+            position: fixed;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,255,255,0.25), rgba(0,255,255,0));
+            border: 1.5px solid cyan;
+            transform: translate(-50%, -50%) scale(1);
+            pointer-events: none;
+            z-index: 10000;
+            transition: transform 0.05s ease-out;
+            will-change: left, top;
+            box-shadow: 0 0 12px cyan;
+        }
+
+        .cursor.drag {
+            border-color: #0f0;
+            box-shadow: 0 0 20px #0f0;
+            transform: translate(-50%, -50%) scale(1.2);
+        }
+
+        .cursor.click {
+            animation: clickFlash 0.1s ease-out;
+        }
+
+        @keyframes clickFlash {
+            0% { transform: translate(-50%, -50%) scale(1); background: rgba(0,255,255,0.6);}
+            100% { transform: translate(-50%, -50%) scale(0.8); background: rgba(0,255,255,0);}
+        }
+
+        .test-area {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            display: flex;
+            gap: 16px;
+            z-index: 200;
+        }
+
+        .test-btn {
+            background: rgba(0,255,255,0.15);
+            border: 1px solid cyan;
+            color: cyan;
+            padding: 8px 18px;
+            border-radius: 40px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: 0.05s linear;
+        }
+
+        .test-btn:active { transform: scale(0.96); background: cyan; color: black;}
+
+        .draggable {
+            position: fixed;
+            width: 120px;
+            height: 120px;
+            background: rgba(255,255,255,0.05);
+            border: 1px dashed cyan;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            backdrop-filter: blur(8px);
+            cursor: grab;
+            transition: none;
+            will-change: transform;
+        }
+        #drag1 { top: 20%; left: 10%; }
+        #drag2 { top: 60%; left: 70%; }
+    </style>
+</head>
+<body>
+
+<div class="debug" id="debugPanel">
+    🎯 CORE v3 | FPS: <span id="fps">0</span> | CONF: <span id="conf">0</span>%<br>
+    ✨ GESTURE: <span id="gesture">IDLE</span> | 📍 <span id="pos">0,0</span>
+</div>
+
+<div class="cursor" id="cursor"></div>
+
+<div class="test-area">
+    <div class="test-btn" id="clickTest">Test Click</div>
+</div>
+
+<div class="draggable" id="drag1" data-draggable="true">🖐️ Sürükle</div>
+<div class="draggable" id="drag2" data-draggable="true">✨ Taşı</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script>
+    (function(){
+        // ======================== KATMAN 1: Motion Core (Raw Tracking & Confidence) ========================
+        class MotionCore {
+            constructor() {
+                this.onLandmark = null; // callback(rawX, rawY, confidence, landmarks)
+                this.video = null;
+                this.hands = null;
+                this.camera = null;
+                this.running = false;
+            }
+
+            async init() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" } });
+                    this.video = document.createElement('video');
+                    this.video.srcObject = stream;
+                    this.video.autoplay = true;
+                    this.video.muted = true;
+                    this.video.playsInline = true;
+                    this.video.style.position = 'fixed';
+                    this.video.style.opacity = '0';
+                    this.video.style.pointerEvents = 'none';
+                    document.body.appendChild(this.video);
+                    
+                    if (typeof Hands === 'undefined') throw new Error('MediaPipe Hands missing');
+                    this.hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+                    this.hands.setOptions({
+                        maxNumHands: 1,
+                        modelComplexity: 1,
+                        minDetectionConfidence: 0.5,
+                        minTrackingConfidence: 0.5
+                    });
+                    
+                    this.hands.onResults((results) => this.processResults(results));
+                    this.camera = new Camera(this.video, {
+                        onFrame: async () => { if (this.running && this.hands) await this.hands.send({ image: this.video }); },
+                        width: 640,
+                        height: 480
+                    });
+                    this.camera.start();
+                    this.running = true;
+                    return true;
+                } catch(e) {
+                    console.error('MotionCore init error:', e);
+                    return false;
+                }
+            }
+
+            processResults(results) {
+                if (!this.onLandmark) return;
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const lm = results.multiHandLandmarks[0];
+                    const indexTip = lm[8];
+                    const wrist = lm[0];
+                    
+                    // Gelişmiş confidence hesaplama
+                    let confidence = 0.6; // base
+                    // 1) El boyutu stabil mi?
+                    const handSize = Math.hypot(indexTip.x - wrist.x, indexTip.y - wrist.y);
+                    if (handSize > 0.1 && handSize < 0.5) confidence += 0.2;
+                    // 2) Landmark'ların mantıklı aralıkta mı?
+                    const isValid = indexTip.x > 0.05 && indexTip.x < 0.95 && indexTip.y > 0.05 && indexTip.y < 0.95;
+                    if (isValid) confidence += 0.15;
+                    // 3) Parmak uçlarının eklemlerden uzaklığı (basit)
+                    const mcp = lm[5];
+                    const tipToMcp = Math.hypot(indexTip.x - mcp.x, indexTip.y - mcp.y);
+                    if (tipToMcp > 0.05) confidence += 0.05;
+                    
+                    confidence = Math.min(0.98, confidence);
+                    
+                    const screenX = (1 - indexTip.x) * window.innerWidth;
+                    const screenY = indexTip.y * window.innerHeight;
+                    
+                    this.onLandmark(screenX, screenY, confidence, lm);
+                } else {
+                    // Hiç el yoksa confidence düşük
+                    this.onLandmark(null, null, 0.05, null);
+                }
+            }
+        }
+
+        // ======================== KATMAN 2: Smoothing & Prediction (Adaptive + Kalman-like) ========================
+        class SmoothingEngine {
+            constructor() {
+                this.smoothX = window.innerWidth/2;
+                this.smoothY = window.innerHeight/2;
+                this.velX = 0;
+                this.velY = 0;
+                this.lastTime = 0;
+                this.alpha = 0.3; // adaptive olacak
+            }
+            
+            // Adaptif alpha: hıza göre, yavaş hareketlerde daha yüksek alpha (daha az yumuşatma)
+            adaptiveAlpha(speed) {
+                // speed: piksel/ms
+                if (speed < 0.2) return 0.45;   // yavaş, daha az yumuşatma
+                if (speed < 0.8) return 0.35;
+                return 0.25; // hızlı, daha çok yumuşatma
+            }
+            
+            update(rawX, rawY, confidence, now) {
+                if (confidence < 0.3) {
+                    // Düşük güven: sadece decay, hareket etme
+                    this.smoothX = this.smoothX * 0.98 + (window.innerWidth/2) * 0.02;
+                    this.smoothY = this.smoothY * 0.98 + (window.innerHeight/2) * 0.02;
+                    return { x: this.smoothX, y: this.smoothY };
+                }
+                
+                let dt = Math.min(0.033, (now - this.lastTime) / 1000);
+                if (dt <= 0) dt = 0.016;
+                
+                // Hız hesapla
+                let newVelX = (rawX - this.smoothX) / dt;
+                let newVelY = (rawY - this.smoothY) / dt;
+                this.velX = this.velX * 0.7 + newVelX * 0.3;
+                this.velY = this.velY * 0.7 + newVelY * 0.3;
+                
+                let speed = Math.hypot(this.velX, this.velY) * dt; // birim: piksel/frame
+                let alpha = this.adaptiveAlpha(speed);
+                
+                // EMA
+                this.smoothX = alpha * rawX + (1 - alpha) * this.smoothX;
+                this.smoothY = alpha * rawY + (1 - alpha) * this.smoothY;
+                
+                // Basit motion prediction (bir sonraki frame için tahmin)
+                let predX = this.smoothX + this.velX * dt * 0.5;
+                let predY = this.smoothY + this.velY * dt * 0.5;
+                
+                this.lastTime = now;
+                return { x: predX, y: predY };
+            }
+            
+            reset() {
+                this.smoothX = window.innerWidth/2;
+                this.smoothY = window.innerHeight/2;
+                this.velX = 0; this.velY = 0;
+            }
+        }
+
+        // ======================== KATMAN 3: Gesture Engine (Temporal Filtering + Hysteresis) ========================
+        class GestureEngine {
+            constructor() {
+                this.state = 'IDLE'; // IDLE, FIST, PINCH
+                this.history = []; // son 5 frame'in gesture'ları
+                this.historyMax = 5;
+                this.pinchDistance = 1.0;
+                this.fistDetected = false;
+                this.lastStableChange = 0;
+                this.minStableMs = 80;
+                
+                // Eşikler
+                this.PINCH_THRESHOLD = 0.048;
+                this.PINCH_RELEASE = 0.065;
+                this.FIST_THRESHOLD_FINGERS = 0; // kaç parmak yukarıda? 0 = fist
+            }
+            
+            update(landmarks, now) {
+                if (!landmarks) {
+                    this.addToHistory('IDLE');
+                    this.applyMajorityVote(now);
+                    return this.state;
+                }
+                
+                // Pinch mesafesi hesapla (başparmak-işaret)
+                const thumbTip = landmarks[4];
+                const indexTip = landmarks[8];
+                const dist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+                this.pinchDistance = dist;
+                
+                // Kaç parmak yukarıda? (basit)
+                let fingersUp = 0;
+                const tips = [8,12,16,20]; // index, middle, ring, pinky
+                const dip = [6,10,14,18];
+                for(let i=0; i<tips.length; i++) {
+                    if(landmarks[tips[i]].y < landmarks[dip[i]].y) fingersUp++;
+                }
+                const isFist = (fingersUp <= 1); // en fazla 1 parmak yukarı (başparmak olabilir)
+                
+                let rawGesture = 'IDLE';
+                if (isFist && dist > 0.07) {
+                    rawGesture = 'FIST';
+                } else if (dist < this.PINCH_THRESHOLD) {
+                    rawGesture = 'PINCH';
+                } else if (dist > this.PINCH_RELEASE && this.state === 'PINCH') {
+                    rawGesture = 'IDLE';
+                } else {
+                    rawGesture = 'IDLE';
+                }
+                
+                this.addToHistory(rawGesture);
+                this.applyMajorityVote(now);
+                return this.state;
+            }
+            
+            addToHistory(gesture) {
+                this.history.push(gesture);
+                if (this.history.length > this.historyMax) this.history.shift();
+            }
+            
+            applyMajorityVote(now) {
+                if (this.history.length === 0) return;
+                // Majority voting
+                const counts = { IDLE:0, FIST:0, PINCH:0 };
+                for (let g of this.history) counts[g]++;
+                let majority = 'IDLE';
+                let maxCount = 0;
+                for (let [g, c] of Object.entries(counts)) {
+                    if (c > maxCount) { maxCount = c; majority = g; }
+                }
+                // Eğer majority stable ise ve yeterli süre geçtiyse değiştir
+                if (majority !== this.state) {
+                    if (now - this.lastStableChange > this.minStableMs) {
+                        this.state = majority;
+                        this.lastStableChange = now;
+                    }
+                }
+            }
+            
+            isPinching() { return this.state === 'PINCH'; }
+            isFist() { return this.state === 'FIST'; }
+        }
+
+        // ======================== KATMAN 4: Interaction Layer (Click, Drag, Hover) ========================
+        class InteractionLayer {
+            constructor(cursorElement) {
+                this.cursorElem = cursorElement;
+                this.lastClickTime = 0;
+                this.clickDebounceMs = 300;
+                this.dragActive = false;
+                this.draggedElement = null;
+                this.dragStartX = 0, this.dragStartY = 0;
+                this.currentX = window.innerWidth/2, this.currentY = window.innerHeight/2;
+                
+                // Hover efekti için
+                this.lastHovered = null;
+            }
+            
+            updateCursor(x, y, gestureState) {
+                this.currentX = x;
+                this.currentY = y;
+                this.cursorElem.style.left = x + 'px';
+                this.cursorElem.style.top = y + 'px';
+                
+                // Gesture'e göre cursor görünümü
+                if (gestureState === 'PINCH') {
+                    this.cursorElem.classList.add('drag');
+                } else {
+                    this.cursorElem.classList.remove('drag');
+                }
+                
+                // Hover detection
+                const elem = document.elementFromPoint(x, y);
+                if (elem && elem !== this.lastHovered) {
+                    if (this.lastHovered) this.lastHovered.style.filter = '';
+                    if (elem && elem !== document.body && elem !== this.cursorElem) {
+                        elem.style.filter = 'brightness(1.2) drop-shadow(0 0 4px cyan)';
+                        this.lastHovered = elem;
+                    }
+                } else if (!elem && this.lastHovered) {
+                    this.lastHovered.style.filter = '';
+                    this.lastHovered = null;
+                }
+            }
+            
+            triggerClick() {
+                const now = Date.now();
+                if (now - this.lastClickTime < this.clickDebounceMs) return false;
+                this.lastClickTime = now;
+                
+                // Görsel efekt
+                this.cursorElem.classList.add('click');
+                setTimeout(() => this.cursorElem.classList.remove('click'), 100);
+                if (navigator.vibrate) navigator.vibrate(20);
+                
+                const elem = document.elementFromPoint(this.currentX, this.currentY);
+                if (elem && elem.click) {
+                    elem.click();
+                    return true;
+                }
+                return false;
+            }
+            
+            startDrag(x, y) {
+                const elem = document.elementFromPoint(x, y);
+                if (!elem || !elem.getAttribute('data-draggable')) return false;
+                this.dragActive = true;
+                this.draggedElement = elem;
+                this.dragStartX = x;
+                this.dragStartY = y;
+                elem.style.transition = 'none';
+                elem.style.willChange = 'transform';
+                // Absolute positioning için hazırlık
+                const rect = elem.getBoundingClientRect();
+                elem.style.position = 'fixed';
+                elem.style.left = rect.left + 'px';
+                elem.style.top = rect.top + 'px';
+                elem.style.margin = '0';
+                return true;
+            }
+            
+            updateDrag(x, y) {
+                if (!this.dragActive || !this.draggedElement) return;
+                let dx = x - this.dragStartX;
+                let dy = y - this.dragStartY;
+                let left = parseFloat(this.draggedElement.style.left) || 0;
+                let top = parseFloat(this.draggedElement.style.top) || 0;
+                this.draggedElement.style.left = (left + dx) + 'px';
+                this.draggedElement.style.top = (top + dy) + 'px';
+                this.dragStartX = x;
+                this.dragStartY = y;
+            }
+            
+            stopDrag() {
+                if (this.dragActive && this.draggedElement) {
+                    this.draggedElement.style.transition = '';
+                    this.draggedElement.style.willChange = '';
+                    this.draggedElement = null;
+                    this.dragActive = false;
+                }
+            }
+        }
+
+        // ======================== KATMAN 5: Rendering Layer (FPS, Debug) ========================
+        class RenderingLayer {
+            constructor() {
+                this.frameCount = 0;
+                this.lastFpsTime = performance.now();
+                this.fpsSpan = document.getElementById('fps');
+                this.confSpan = document.getElementById('conf');
+                this.gestureSpan = document.getElementById('gesture');
+                this.posSpan = document.getElementById('pos');
+            }
+            
+            updateDebug(confidence, gesture, x, y) {
+                this.confSpan.innerText = Math.floor(confidence * 100);
+                this.gestureSpan.innerText = gesture;
+                this.posSpan.innerText = `${Math.floor(x)},${Math.floor(y)}`;
+                
+                // FPS hesapla
+                this.frameCount++;
+                const now = performance.now();
+                if (now - this.lastFpsTime >= 1000) {
+                    const fps = Math.min(75, Math.round((this.frameCount * 1000) / (now - this.lastFpsTime)));
+                    this.fpsSpan.innerText = fps;
+                    this.frameCount = 0;
+                    this.lastFpsTime = now;
+                }
+            }
+        }
+
+        // ======================== ANA UYGULAMA (Glue Code) ========================
+        async function main() {
+            const motionCore = new MotionCore();
+            const smoothing = new SmoothingEngine();
+            const gestureEngine = new GestureEngine();
+            const cursor = document.getElementById('cursor');
+            const interaction = new InteractionLayer(cursor);
+            const renderer = new RenderingLayer();
+            
+            let lastTimestamp = performance.now();
+            let currentConfidence = 0;
+            let currentGesture = 'IDLE';
+            
+            // MotionCore'dan landmark geldiğinde
+            motionCore.onLandmark = (rawX, rawY, confidence, landmarks) => {
+                const now = performance.now();
+                currentConfidence = confidence;
+                
+                // Gesture güncelle
+                currentGesture = gestureEngine.update(landmarks, now);
+                
+                // Eğer confidence yeterliyse raw pozisyonu al, yoksa son bilinen smooth pozisyonu kullan
+                let finalX, finalY;
+                if (rawX !== null && confidence > 0.25) {
+                    const smoothed = smoothing.update(rawX, rawY, confidence, now);
+                    finalX = smoothed.x;
+                    finalY = smoothed.y;
+                } else {
+                    // Düşük confidence: tahmini devam ettir (prediction)
+                    const predicted = smoothing.update(null, null, 0.1, now);
+                    finalX = predicted.x;
+                    finalY = predicted.y;
+                }
+                
+                // Interaction katmanına gönder
+                interaction.updateCursor(finalX, finalY, currentGesture);
+                
+                // Gesture aksiyonları
+                if (gestureEngine.isFist()) {
+                    interaction.triggerClick();
+                } else if (gestureEngine.isPinching()) {
+                    if (!interaction.dragActive) {
+                        interaction.startDrag(finalX, finalY);
+                    } else {
+                        interaction.updateDrag(finalX, finalY);
+                    }
+                } else {
+                    if (interaction.dragActive) interaction.stopDrag();
+                }
+                
+                renderer.updateDebug(confidence, currentGesture, finalX, finalY);
+            };
+            
+            await motionCore.init();
+            console.log('Motion Engine v3 aktif | Production Grade');
+        }
+        
+        main();
+    })();
+</script>
+</body>
+</html>
