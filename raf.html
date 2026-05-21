@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
+    <title>Akademik Asistan Pro | GestureX Kontrol</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <style>
+        /* ---------- ORİJİNAL UYGULAMA STİLLERİ (AYNEN KORUNDU) ---------- */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        :root {
+            --primary: #4361ee;
+            --primary-dark: #3a0ca3;
+            --primary-light: #7209b7;
+            --secondary: #4cc9f0;
+            --success: #06d6a0;
+            --danger: #ef476f;
+            --warning: #ffd166;
+            --info: #118ab2;
+            --dark: #073b4c;
+            --light: #f8f9fa;
+            --gray-100: #f8f9fa;
+            --gray-200: #e9ecef;
+            --gray-300: #dee2e6;
+            --gray-400: #ced4da;
+            --gray-500: #adb5bd;
+            --gray-600: #6c757d;
+            --gray-700: #495057;
+            --gray-800: #343a40;
+            --gray-900: #212529;
+            --border-radius-sm: 6px;
+            --border-radius: 10px;
+            --border-radius-lg: 14px;
+            --border-radius-xl: 20px;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+            --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+            --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            padding: 10px;
+            position: relative;
+        }
+
+        /* Kamera arka planı (gesture sistemi için) */
+        #bgCamera {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 0;
+            opacity: 0.22;
+            transform: scaleX(-1);
+            pointer-events: none;
+        }
+        .camera-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.35);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* Premium İmleç (gesture cursor) */
+        .gesture-cursor {
+            position: fixed;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(67,97,238,0.4), rgba(67,97,238,0.05));
+            border: 2px solid var(--primary);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10000;
+            will-change: left, top;
+            transition: left 0.006s linear, top 0.006s linear, width 0.1s ease, height 0.1s ease;
+            backdrop-filter: blur(3px);
+            box-shadow: 0 0 18px rgba(67,97,238,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .gesture-cursor::before {
+            content: "☝️";
+            position: absolute;
+            top: -26px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 26px;
+            filter: drop-shadow(0 2px 5px rgba(0,0,0,0.3));
+            transition: content 0.05s;
+        }
+        .gesture-cursor.drag-mode {
+            width: 70px;
+            height: 70px;
+            background: radial-gradient(circle, rgba(6,214,160,0.45), rgba(6,214,160,0.08));
+            border-color: var(--success);
+            box-shadow: 0 0 26px rgba(6,214,160,0.5);
+        }
+        .gesture-cursor.drag-mode::before { content: "🖐️"; font-size: 32px; }
+        .gesture-cursor.click-effect { animation: clickPulse 0.15s ease; }
+        @keyframes clickPulse {
+            0% { transform: translate(-50%, -50%) scale(1); background: var(--primary);}
+            100% { transform: translate(-50%, -50%) scale(0.75); background: var(--success);}
+        }
+
+        /* Gesture panel */
+        .gesture-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(12px);
+            border-radius: 60px;
+            padding: 8px 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            z-index: 1001;
+            border: 1px solid rgba(255,255,255,0.2);
+            font-family: monospace;
+            pointer-events: none;
+        }
+        .gesture-led {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef476f;
+            transition: 0.05s;
+        }
+        .gesture-led.active { background: #06d6a0; box-shadow: 0 0 10px #06d6a0; animation: ledFlash 0.5s infinite; }
+        @keyframes ledFlash { 0% { opacity: 1; } 50% { opacity: 0.5; } }
+        .gesture-text { color: white; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; }
+        .gesture-fps { background: #1e1e2f; padding: 2px 10px; border-radius: 40px; font-size: 11px; font-weight: bold; color: #4ecdc4; }
+
+        /* Uyarı mesajı (düşük ışık) */
+        .light-alert {
+            position: fixed;
+            bottom: 90px;
+            left: 20px;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(10px);
+            padding: 8px 18px;
+            border-radius: 40px;
+            font-size: 11px;
+            border-left: 3px solid var(--warning);
+            z-index: 1002;
+            pointer-events: none;
+            color: #ffecb3;
+        }
+
+        /* Orijinal uygulama container'ı (üstte) */
+        .app-wrapper {
+            max-width: 1600px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 10;
+        }
+        .app-container {
+            background: rgba(255, 255, 255, 0.94);
+            backdrop-filter: blur(6px);
+            border-radius: var(--border-radius-xl);
+            overflow: hidden;
+            box-shadow: var(--shadow-lg);
+        }
+        /* Navbar */
+        .main-navbar {
+            display: flex;
+            background: rgba(255, 255, 255, 0.96);
+            padding: 0 16px;
+            border-bottom: 1px solid var(--gray-200);
+            overflow-x: auto;
+            gap: 2px;
+        }
+        .nav-tab {
+            padding: 12px 16px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 12px;
+            color: var(--gray-600);
+            border-bottom: 2px solid transparent;
+            transition: var(--transition);
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .nav-tab i { font-size: 13px; }
+        .nav-tab:hover { color: var(--primary); background: rgba(67,97,238,0.05); }
+        .nav-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+        .content-panel { display: none; animation: fadeIn 0.2s ease; }
+        .content-panel.active-panel { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(5,1fr);
+            gap: 12px;
+            padding: 16px;
+            background: rgba(248,249,250,0.9);
+            border-bottom: 1px solid var(--gray-200);
+        }
+        @media (max-width:1024px){ .stats-grid { grid-template-columns: repeat(3,1fr); } }
+        @media (max-width:640px){ .stats-grid { grid-template-columns: repeat(2,1fr); } }
+        .stat-card {
+            background: white;
+            border-radius: var(--border-radius);
+            padding: 12px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--gray-200);
+            transition: var(--transition);
+            cursor: pointer;
+        }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+        .stat-title { font-size: 10px; text-transform: uppercase; color: var(--gray-500); margin-bottom: 6px; display: flex; gap: 4px; }
+        .stat-value { font-size: 24px; font-weight: 700; color: var(--primary); }
+
+        .time-settings-panel {
+            background: rgba(255,255,255,0.95);
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--gray-200);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .timetable-wrapper {
+            overflow-x: auto;
+            max-height: 58vh;
+            padding: 12px;
+        }
+        .timetable-grid {
+            display: grid;
+            grid-template-columns: 60px repeat(7, minmax(110px,1fr));
+            gap: 1px;
+            background: #000;
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            min-width: 800px;
+        }
+        .time-header, .day-header {
+            padding: 10px 4px;
+            font-weight: 700;
+            font-size: 11px;
+            background: white;
+            text-align: center;
+            border-bottom: 1px solid #000;
+            min-height: 50px;
+        }
+        .day-header { background: #f1f3f5; color: var(--primary); border-right: 1px solid #000; }
+        .time-cell {
+            padding: 8px 3px;
+            font-size: 10px;
+            background: white;
+            text-align: center;
+            border-bottom: 1px solid #000;
+            border-right: 1px solid #000;
+            min-height: 80px;
+        }
+        .lesson-slot {
+            background: white;
+            min-height: 80px;
+            padding: 5px;
+            cursor: pointer;
+            transition: 0.05s linear;
+            border-bottom: 1px solid #000;
+            border-right: 1px solid #000;
+        }
+        .lesson-slot:hover { background: rgba(67,97,238,0.05); }
+        .lesson-item {
+            border-left: 4px solid;
+            border-radius: 6px;
+            padding: 6px;
+            background: white;
+            box-shadow: var(--shadow-sm);
+        }
+        .btn-primary, .btn-secondary, .btn-danger, .btn-outline {
+            padding: 6px 14px;
+            border-radius: 25px;
+            font-weight: 600;
+            font-size: 10px;
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            border: none;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); }
+        .btn-secondary { background: var(--gray-200); color: var(--gray-700); }
+        .btn-danger { background: var(--danger); color: white; }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(8px);
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            padding: 20px;
+        }
+        .modal-card {
+            background: white;
+            border-radius: var(--border-radius-lg);
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 24px;
+        }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { font-size: 11px; font-weight: 600; display: block; margin-bottom: 5px; }
+        .form-group input, select, textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-family: inherit;
+        }
+        .toast-msg {
+            position: fixed;
+            bottom: 80px;
+            left: 20px;
+            background: #1e1e2f;
+            color: white;
+            padding: 8px 18px;
+            border-radius: 40px;
+            font-size: 12px;
+            z-index: 3000;
+            animation: slideIn 0.2s ease;
+        }
+        @keyframes slideIn { from { opacity:0; transform:translateX(-40px); } to { opacity:1; transform:translateX(0); } }
+        .history-grid, .compare-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px,1fr));
+            gap: 12px;
+            padding: 16px;
+        }
+        .history-card, .compare-card {
+            background: white;
+            border-radius: var(--border-radius);
+            padding: 12px;
+            border: 1px solid var(--gray-200);
+            cursor: pointer;
+            transition: 0.1s;
+        }
+        .history-card:hover, .compare-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+        .analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px,1fr)); gap: 20px; padding: 20px; }
+        .analytics-card { background: white; border-radius: var(--border-radius); padding: 16px; border: 1px solid var(--gray-200); }
+        .hover-glow { outline: 2px solid var(--primary); outline-offset: 2px; background: rgba(67,97,238,0.08) !important; transition: outline 0.02s; }
+        footer { text-align: center; padding: 10px; border-top: 1px solid var(--gray-200); font-size: 9px; color: gray; background: rgba(255,255,255,0.7); }
+    </style>
+</head>
+<body>
+
+<video id="bgCamera" autoplay muted playsinline></video>
+<div class="camera-overlay"></div>
+<div class="gesture-cursor" id="gestureCursor"></div>
+<div class="gesture-panel">
+    <div class="gesture-led" id="gestureLed"></div>
+    <div class="gesture-text" id="gestureText">✊ Yumruk = Tıkla | 🖐️ Tut/Sürükle</div>
+    <div class="gesture-fps" id="fpsMeter">0 FPS</div>
+</div>
+<div class="light-alert" id="lightAlert" style="display: none;">💡 Düşük ışık, elinizi aydınlatın</div>
+
+<div class="app-wrapper">
+    <div class="app-container">
+        <div class="main-navbar">
+            <div class="nav-tab active" data-tab="create"><i class="fas fa-calendar-alt"></i> Program</div>
+            <div class="nav-tab" data-tab="history"><i class="fas fa-history"></i> Geçmiş</div>
+            <div class="nav-tab" data-tab="compare"><i class="fas fa-chart-line"></i> Karşılaştır</div>
+            <div class="nav-tab" data-tab="analytics"><i class="fas fa-chart-pie"></i> Analiz</div>
+            <div class="nav-tab" data-tab="settings"><i class="fas fa-cog"></i> Ayarlar</div>
+        </div>
+
+        <!-- Program Paneli -->
+        <div class="content-panel active-panel" id="createPanel">
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card" data-draggable="true"><div class="stat-title"><i class="fas fa-clock"></i> Toplam Ders</div><div class="stat-value" id="totalHoursStat">0</div></div>
+                <div class="stat-card" data-draggable="true"><div class="stat-title"><i class="fas fa-question-circle"></i> Toplam Soru</div><div class="stat-value" id="totalQuestionsStat">0</div></div>
+                <div class="stat-card" data-draggable="true"><div class="stat-title"><i class="fas fa-chart-line"></i> Verimlilik</div><div class="stat-value" id="efficiencyScore">0</div></div>
+                <div class="stat-card" data-draggable="true"><div class="stat-title"><i class="fas fa-trophy"></i> Akademik Seviye</div><div class="stat-value" id="academicLevel">Başlangıç</div></div>
+                <div class="stat-card" data-draggable="true"><div class="stat-title"><i class="fas fa-bullseye"></i> Hedef Tamamlama</div><div class="stat-value" id="targetCompletion">0%</div></div>
+            </div>
+            <div class="time-settings-panel">
+                <div><i class="far fa-clock"></i> Zaman Dilimleri</div>
+                <div id="timeSlotsContainer"></div>
+                <div><button class="btn-secondary" id="addTimeSlotBtn">+ Ekle</button><button class="btn-secondary" id="resetTimeSlotsBtn">Sıfırla</button></div>
+            </div>
+            <div class="timetable-wrapper"><div class="timetable-grid" id="timetableGrid"></div></div>
+            <div style="padding: 12px 16px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                <div><button class="btn-secondary" id="clearAllBtn">Temizle</button><button class="btn-secondary" id="quickTemplateBtn">Hızlı Şablon</button><button class="btn-secondary" id="exportPdfBtn">PDF</button></div>
+                <button class="btn-primary" id="saveProgramBtn">Programı Arşivle</button>
+            </div>
+        </div>
+
+        <!-- Geçmiş Paneli -->
+        <div class="content-panel" id="historyPanel">
+            <div class="stats-grid" style="padding-bottom:0;">
+                <div class="stat-card"><div class="stat-title">Arşivlenen</div><div class="stat-value" id="archivedCount">0</div></div>
+                <div class="stat-card"><div class="stat-title">Favoriler</div><div class="stat-value" id="favoriteCount">0</div></div>
+                <div class="stat-card"><div class="stat-title">Son Program</div><div class="stat-value" id="lastProgramDate">-</div></div>
+            </div>
+            <div id="historyContainer" class="history-grid"></div>
+        </div>
+
+        <!-- Karşılaştırma Paneli -->
+        <div class="content-panel" id="comparePanel">
+            <div style="padding:16px"><h3 style="font-size:14px">Program Karşılaştırma</h3><div id="compareProgramsList" style="margin:12px 0"></div><button class="btn-primary" id="doCompareBtn">Karşılaştır</button></div>
+        </div>
+
+        <!-- Analiz Paneli -->
+        <div class="content-panel" id="analyticsPanel">
+            <div class="analytics-grid">
+                <div class="analytics-card"><h3><i class="fas fa-chart-bar"></i> Haftalık Çalışma</h3><canvas id="weeklyChart" style="max-height:200px"></canvas></div>
+                <div class="analytics-card"><h3><i class="fas fa-chart-line"></i> Ders Bazlı Verimlilik</h3><canvas id="performanceChart" style="max-height:200px"></canvas></div>
+                <div class="analytics-card"><h3><i class="fas fa-fire"></i> Çalışma Isısı</h3><div id="heatmap"></div></div>
+            </div>
+        </div>
+
+        <!-- Ayarlar Paneli -->
+        <div class="content-panel" id="settingsPanel">
+            <div style="padding:20px"><button class="btn-secondary" onclick="changeTheme('dark')">Koyu Tema</button><button class="btn-secondary" onclick="exportAllData()">Dışa Aktar</button><button class="btn-danger" onclick="clearAllData()">Tümünü Sil</button></div>
+        </div>
+        <footer>✊ Yumruk (0.3sn) = Tıkla | 🖐️ Başparmak+İşaret = Tut ve Sürükle</footer>
+    </div>
+</div>
+
+<!-- Modal (Ders Ekleme/Düzenleme) -->
+<div id="lessonModal" class="modal"><div class="modal-card"><h3 id="modalTitle">Ders Bilgileri</h3><input type="hidden" id="modalDay"><input type="hidden" id="modalHour"><div class="form-group"><label>Ders Adı</label><input id="lessonName" placeholder="Matematik"></div><div class="form-group"><label>Kategori</label><select id="lessonCategory"><option>sayısal</option><option>sözel</option><option>eşit ağırlık</option></select></div><div class="form-group"><label>Notlar</label><textarea id="lessonNote" rows="2"></textarea></div><div class="form-group"><label>Çözülen Soru</label><input type="number" id="questionCount" value="0"></div><div class="form-group"><label>Hedef Soru</label><input type="number" id="targetQuestion" value="50"></div><div class="form-group"><label>Renk</label><input type="color" id="lessonColor" value="#4361ee"></div><div class="form-group"><label>Önem</label><select id="importance"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div><div style="display:flex; gap:8px; justify-content:flex-end;"><button class="btn-secondary" id="closeModalBtn">İptal</button><button class="btn-primary" id="saveLessonBtn">Kaydet</button><button class="btn-danger" id="deleteLessonBtn" style="display:none">Sil</button></div></div></div>
+
+<script>
+// ==================== ORİJİNAL UYGULAMA TÜM FONKSİYONLARI ====================
+const DAYS = ["Pazartesi","Salı","Çarşamba","Perşembe","Cuma","Cumartesi","Pazar"];
+let TIME_SLOTS = ["09:00","10:00","11:00","13:00","14:00","15:00","16:00"];
+let timetable = [];
+let programHistory = [];
+let selectedCompare = [];
+let weeklyChart = null, perfChart = null;
+
+function escapeHtml(s){ if(!s) return ""; return s.replace(/[&<>]/g, m=> m==='&'? '&amp;' : m==='<'? '&lt;' : '&gt;'); }
+function formatDate(d){ return new Date(d).toLocaleDateString('tr-TR'); }
+function initTimetable(){ timetable = DAYS.map(()=>Array(TIME_SLOTS.length).fill(null)); }
+function showToast(msg){ let t=document.querySelector('.toast-msg'); if(t) t.remove(); let div=document.createElement('div'); div.className='toast-msg'; div.innerText=msg; document.body.appendChild(div); setTimeout(()=>div.remove(),1500); }
+
+function updateStats(){
+    let hours=0, questions=0, target=0;
+    for(let d=0;d<DAYS.length;d++) for(let h=0;h<TIME_SLOTS.length;h++){ let l=timetable[d]?.[h]; if(l?.name){ hours++; questions+=l.questionCount||0; target+=l.targetQuestion||50; } }
+    let efficiency = hours? Math.min(100, Math.floor((questions/(hours*15))*100)) : 0;
+    let completion = target? Math.min(100, Math.floor((questions/target)*100)) : 0;
+    document.getElementById("totalHoursStat").innerHTML=hours;
+    document.getElementById("totalQuestionsStat").innerHTML=questions;
+    document.getElementById("efficiencyScore").innerHTML=efficiency;
+    document.getElementById("targetCompletion").innerHTML=completion+"%";
+    let level = efficiency>=80?"Uzman":efficiency>=60?"İleri":efficiency>=40?"Orta":efficiency>=20?"Gelişen":"Başlangıç";
+    document.getElementById("academicLevel").innerHTML=level;
+}
+
+function renderTimetable(){
+    let container = document.getElementById("timetableGrid");
+    container.innerHTML = "";
+    let timeCol = document.createElement("div"); timeCol.className="time-col";
+    let th=document.createElement("div"); th.className="time-header"; th.innerHTML="<i class='fas fa-clock'></i>"; timeCol.appendChild(th);
+    TIME_SLOTS.forEach(slot=>{ let c=document.createElement("div"); c.className="time-cell"; c.innerHTML=escapeHtml(slot); timeCol.appendChild(c); });
+    container.appendChild(timeCol);
+    for(let d=0;d<DAYS.length;d++){
+        let dayCard=document.createElement("div");
+        let dh=document.createElement("div"); dh.className="day-header"; dh.innerHTML=DAYS[d]; dayCard.appendChild(dh);
+        for(let h=0;h<TIME_SLOTS.length;h++){
+            let slotDiv=document.createElement("div"); slotDiv.className="lesson-slot"; slotDiv.setAttribute('data-draggable','true');
+            let lesson=timetable[d]?.[h];
+            if(lesson?.name){
+                let inner=document.createElement("div"); inner.className="lesson-item"; inner.style.borderLeftColor=lesson.color;
+                let progress=((lesson.questionCount||0)/(lesson.targetQuestion||50))*100;
+                inner.innerHTML=`<div><strong>${escapeHtml(lesson.name)}</strong><button class="delete-lesson" style="float:right;background:none;border:none;color:red;cursor:pointer;"><i class="fas fa-trash"></i></button></div><div class="progress-bar"><div style="width:${Math.min(100,progress)}%; height:4px; background:${lesson.color};"></div></div><div>${lesson.questionCount||0}/${lesson.targetQuestion||50}</div>`;
+                inner.querySelector(".delete-lesson")?.addEventListener("click",(e)=>{ e.stopPropagation(); deleteLesson(d,h); });
+                slotDiv.appendChild(inner);
+            } else { slotDiv.innerHTML = "<div style='text-align:center;color:gray;'><i class='far fa-plus-square'></i></div>"; }
+            slotDiv.addEventListener("click",()=>openModal(d,h,lesson));
+            dayCard.appendChild(slotDiv);
+        } container.appendChild(dayCard);
+    }
+}
+
+function deleteLesson(d,h){ if(timetable[d]?.[h]){ timetable[d][h]=null; renderTimetable(); updateStats(); updateAnalytics(); showToast("Ders silindi"); } }
+function saveLesson(day,hour,data){ if(!data.name.trim()) return; if(!timetable[day]) timetable[day]=Array(TIME_SLOTS.length).fill(null); timetable[day][hour]={ name:data.name.trim(), note:data.note||"", color:data.color, questionCount:parseInt(data.questionCount)||0, targetQuestion:parseInt(data.targetQuestion)||50, category:data.category, importance:parseInt(data.importance)||3, date:new Date().toISOString() }; renderTimetable(); updateStats(); updateAnalytics(); showToast("Ders kaydedildi"); }
+
+let curD=-1,curH=-1;
+function openModal(d,h,lesson){ curD=d; curH=h; document.getElementById("modalTitle").innerHTML=lesson?`✏️ ${DAYS[d]} ${TIME_SLOTS[h]}`:`➕ Yeni Ders`; document.getElementById("lessonName").value=lesson?.name||""; document.getElementById("lessonNote").value=lesson?.note||""; document.getElementById("lessonColor").value=lesson?.color||"#4361ee"; document.getElementById("questionCount").value=lesson?.questionCount||0; document.getElementById("targetQuestion").value=lesson?.targetQuestion||50; document.getElementById("lessonCategory").value=lesson?.category||"sayısal"; document.getElementById("importance").value=lesson?.importance||3; document.getElementById("deleteLessonBtn").style.display=lesson?"inline-flex":"none"; document.getElementById("lessonModal").style.display="flex"; }
+function closeModal(){ document.getElementById("lessonModal").style.display="none"; }
+
+function saveCurrentProgram(){
+    let total=timetable.flat().filter(l=>l?.name).length;
+    if(!total){ showToast("Kaydedilecek ders yok"); return; }
+    programHistory.unshift({ id:Date.now(), name:`Program ${new Date().toLocaleString()}`, date:new Date().toISOString(), timetable:JSON.parse(JSON.stringify(timetable)), timeSlots:[...TIME_SLOTS], lessonCount:total, favorite:false });
+    renderHistory(); updateArchiveStats(); renderCompareList(); showToast("Arşivlendi");
+}
+function renderHistory(){
+    let container=document.getElementById("historyContainer");
+    if(!programHistory.length){ container.innerHTML="<div style='text-align:center;padding:40px'>Arşiv yok</div>"; return; }
+    let html="";
+    programHistory.forEach(p=>{ html+=`<div class="history-card" data-id="${p.id}" data-draggable="true"><strong>${escapeHtml(p.name)}</strong><br>${p.lessonCount} ders<br><small>${formatDate(p.date)}</small></div>`; });
+    container.innerHTML=html;
+    document.querySelectorAll('.history-card').forEach(c=>c.addEventListener('click',()=>{ let prog=programHistory.find(pp=>pp.id==parseInt(c.dataset.id)); if(prog) showProgramDetail(prog); }));
+}
+function showProgramDetail(prog){ alert(`Detay: ${prog.name}\nDers: ${prog.lessonCount}`); }
+function updateArchiveStats(){ document.getElementById("archivedCount").innerHTML=programHistory.length; document.getElementById("favoriteCount").innerHTML=programHistory.filter(p=>p.favorite).length; if(programHistory.length) document.getElementById("lastProgramDate").innerHTML=formatDate(programHistory[0].date); }
+
+function renderCompareList(){
+    let container=document.getElementById("compareProgramsList");
+    if(!programHistory.length){ container.innerHTML="<p>Arşiv bulunamadı</p>"; return; }
+    let html="";
+    programHistory.forEach(p=>{ html+=`<div><input type="checkbox" class="compare-cb" data-id="${p.id}"> ${p.name} (${p.lessonCount} ders)</div>`; });
+    container.innerHTML=html;
+    selectedCompare=[];
+    document.querySelectorAll(".compare-cb").forEach(cb=>cb.addEventListener("change",e=>{ let id=parseInt(cb.dataset.id); if(cb.checked) selectedCompare.push(id); else selectedCompare=selectedCompare.filter(i=>i!==id); }));
+}
+function doCompare(){
+    if(selectedCompare.length<2){ showToast("En az 2 program seçin","error"); return; }
+    let progs=programHistory.filter(p=>selectedCompare.includes(p.id));
+    let msg=progs.map(p=>p.name).join(" vs ");
+    showToast(`Karşılaştırma: ${msg}`);
+}
+
+function updateAnalytics(){
+    let weeklyData=DAYS.map((_,d)=>timetable[d]?.filter(l=>l?.name).length||0);
+    if(weeklyChart) weeklyChart.destroy();
+    let ctx=document.getElementById('weeklyChart')?.getContext('2d');
+    if(ctx) weeklyChart=new Chart(ctx,{ type:'bar', data:{ labels:DAYS, datasets:[{ label:'Ders Saati', data:weeklyData, backgroundColor:'#4361ee' }] } });
+    let lessonMap=new Map();
+    for(let d of timetable) for(let l of d) if(l?.name) lessonMap.set(l.name,(lessonMap.get(l.name)||0)+1);
+    if(perfChart) perfChart.destroy();
+    let ctx2=document.getElementById('performanceChart')?.getContext('2d');
+    if(ctx2) perfChart=new Chart(ctx2,{ type:'radar', data:{ labels:Array.from(lessonMap.keys()), datasets:[{ label:'Ders Dağılımı', data:Array.from(lessonMap.values()), backgroundColor:'rgba(67,97,238,0.2)', borderColor:'#4361ee' }] } });
+    let heatHtml="<div style='display:grid;grid-template-columns:repeat(7,1fr);gap:5px'>";
+    DAYS.forEach((day,i)=>{ let h=weeklyData[i]; heatHtml+=`<div style="text-align:center;padding:8px;background:${h>0?'#e8f0fe':'#f8f9fa'};border-radius:8px;"><strong>${day.substring(0,3)}</strong><br>${h>5?'🔥🔥🔥':h>3?'🔥🔥':h>0?'🔥':'❄️'}<br>${h}</div>`; });
+    heatHtml+="</div>"; document.getElementById("heatmap").innerHTML=heatHtml;
+}
+function quickFillAllDays(){
+    let templates=["Matematik","Fizik","Kimya","Biyoloji","İngilizce"];
+    for(let d=0;d<DAYS.length;d++) for(let h=0;h<TIME_SLOTS.length;h++) if(!timetable[d]?.[h]){ if(!timetable[d]) timetable[d]=Array(TIME_SLOTS.length).fill(null); timetable[d][h]={ name:templates[Math.floor(Math.random()*templates.length)], note:"Hızlı", color:"#4361ee", questionCount:20, targetQuestion:50, category:"sayısal", importance:3, date:new Date().toISOString() };}
+    renderTimetable(); updateStats(); updateAnalytics(); showToast("Şablon dolduruldu");
+}
+function exportToPDF(){ let el=document.getElementById("timetableGrid"); html2pdf().set({ margin:0.5, filename:`program_${Date.now()}.pdf` }).from(el).save(); }
+function exportAllData(){ let a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([JSON.stringify({timetable,timeSlots:TIME_SLOTS,history:programHistory})],{type:"application/json"})); a.download=`backup_${Date.now()}.json`; a.click(); showToast("Dışa aktarıldı"); }
+function importData(){ let inp=document.createElement("input"); inp.type="file"; inp.accept="application/json"; inp.onchange=e=>{ let fr=new FileReader(); fr.onload=ev=>{ let data=JSON.parse(ev.target.result); if(data.timetable) timetable=data.timetable; if(data.timeSlots) TIME_SLOTS=data.timeSlots; if(data.history) programHistory=data.history; renderTimetable(); updateStats(); updateAnalytics(); renderHistory(); updateArchiveStats(); renderCompareList(); showToast("Veri yüklendi"); }; fr.readAsText(inp.files[0]); }; inp.click(); }
+function clearAllData(){ if(confirm("Tüm veriler silinsin?")){ initTimetable(); TIME_SLOTS=["09:00","10:00","11:00","13:00","14:00","15:00","16:00"]; programHistory=[]; renderTimetable(); updateStats(); updateAnalytics(); renderHistory(); updateArchiveStats(); renderCompareList(); showToast("Tüm veriler silindi"); } }
+function changeTheme(theme){ document.querySelector('.app-container').style.background=theme==='dark'?'rgba(20,20,40,0.94)':'rgba(255,255,255,0.94)'; showToast(`Tema: ${theme}`); }
+
+function renderTimeControls(){
+    let cont=document.getElementById("timeSlotsContainer"); cont.innerHTML="";
+    TIME_SLOTS.forEach((slot,idx)=>{ let div=document.createElement("div"); div.style.cssText="background:white;border-radius:30px;padding:4px 12px;display:inline-flex;gap:6px;margin:3px"; div.innerHTML=`<input type="text" value="${escapeHtml(slot)}" data-idx="${idx}" style="border:none;width:70px;"> <button class="remove-slot" data-idx="${idx}" style="background:transparent;border:none;color:red;">🗑️</button>`; cont.appendChild(div); });
+    document.querySelectorAll(".remove-slot").forEach(btn=>btn.addEventListener("click",(e)=>{ let idx=parseInt(btn.dataset.idx); if(TIME_SLOTS.length<=1) return; TIME_SLOTS=TIME_SLOTS.filter((_,i)=>i!==idx); let newTT=DAYS.map(()=>Array(TIME_SLOTS.length).fill(null)); for(let i=0;i<DAYS.length;i++) for(let j=0;j<Math.min(timetable[i]?.length,TIME_SLOTS.length);j++) if(timetable[i]?.[j]) newTT[i][j]={...timetable[i][j]}; timetable=newTT; renderTimeControls(); renderTimetable(); updateStats(); updateAnalytics(); showToast("Zaman dilimi silindi"); }));
+    document.querySelectorAll(".slot-input").forEach(inp=>inp.addEventListener("change",(e)=>{ let idx=parseInt(inp.dataset.idx); if(inp.value.trim()) TIME_SLOTS[idx]=inp.value.trim(); renderTimetable(); showToast("Güncellendi"); }));
+}
+
+// Orijinal event listener'lar
+document.addEventListener("DOMContentLoaded",()=>{ initTimetable(); renderTimeControls(); renderTimetable(); updateStats(); updateAnalytics(); });
+document.querySelectorAll('.nav-tab').forEach(t=>t.addEventListener("click",()=>{ let tab=t.dataset.tab; document.querySelectorAll('.nav-tab').forEach(tt=>tt.classList.remove('active')); t.classList.add('active'); document.querySelectorAll('.content-panel').forEach(p=>p.classList.remove('active-panel')); document.getElementById(tab==='create'?'createPanel':tab==='history'?'historyPanel':tab==='compare'?'comparePanel':tab==='analytics'?'analyticsPanel':'settingsPanel').classList.add('active-panel'); if(tab==='history') renderHistory(); if(tab==='compare') renderCompareList(); if(tab==='analytics') updateAnalytics(); }));
+document.getElementById("saveProgramBtn")?.addEventListener("click",saveCurrentProgram);
+document.getElementById("saveLessonBtn")?.addEventListener("click",()=>{ if(curD!==-1) saveLesson(curD,curH,{ name:document.getElementById("lessonName").value, note:document.getElementById("lessonNote").value, color:document.getElementById("lessonColor").value, questionCount:document.getElementById("questionCount").value, targetQuestion:document.getElementById("targetQuestion").value, category:document.getElementById("lessonCategory").value, importance:document.getElementById("importance").value }); closeModal(); });
+document.getElementById("deleteLessonBtn")?.addEventListener("click",()=>{ if(curD!==-1) deleteLesson(curD,curH); closeModal(); });
+document.getElementById("closeModalBtn")?.addEventListener("click",closeModal);
+document.getElementById("clearAllBtn")?.addEventListener("click",()=>{ if(confirm("Tüm dersler silinsin?")){ initTimetable(); renderTimetable(); updateStats(); updateAnalytics(); showToast("Temizlendi"); } });
+document.getElementById("addTimeSlotBtn")?.addEventListener("click",()=>{ TIME_SLOTS.push("Yeni"); let newTT=DAYS.map(()=>Array(TIME_SLOTS.length).fill(null)); for(let i=0;i<DAYS.length;i++) for(let j=0;j<Math.min(timetable[i]?.length,TIME_SLOTS.length-1);j++) if(timetable[i]?.[j]) newTT[i][j]={...timetable[i][j]}; timetable=newTT; renderTimeControls(); renderTimetable(); updateStats(); updateAnalytics(); showToast("Zaman dilimi eklendi"); });
+document.getElementById("resetTimeSlotsBtn")?.addEventListener("click",()=>{ TIME_SLOTS=["09:00","10:00","11:00","13:00","14:00","15:00","16:00"]; let newTT=DAYS.map(()=>Array(TIME_SLOTS.length).fill(null)); for(let i=0;i<DAYS.length;i++) for(let j=0;j<Math.min(timetable[i]?.length,TIME_SLOTS.length);j++) if(timetable[i]?.[j]) newTT[i][j]={...timetable[i][j]}; timetable=newTT; renderTimeControls(); renderTimetable(); updateStats(); updateAnalytics(); showToast("Zamanlar sıfırlandı"); });
+document.getElementById("exportPdfBtn")?.addEventListener("click",exportToPDF);
+document.getElementById("quickTemplateBtn")?.addEventListener("click",quickFillAllDays);
+document.getElementById("doCompareBtn")?.addEventListener("click",doCompare);
+window.exportAllData=exportAllData; window.importData=importData; window.clearAllData=clearAllData; window.changeTheme=changeTheme;
+
+// ==================== PROFESYONEL GESTURE MOTORU (60FPS+ , Smoothing, Prediction, Drag&Drop) ====================
+const videoEl = document.getElementById('bgCamera');
+const cursor = document.getElementById('gestureCursor');
+const led = document.getElementById('gestureLed');
+const gestureTextSpan = document.getElementById('gestureText');
+const fpsSpan = document.getElementById('fpsMeter');
+const lightAlert = document.getElementById('lightAlert');
+
+let rawX=0, rawY=0, smoothedX=0, smoothedY=0, predictedX=0, predictedY=0;
+let lastX=0, lastY=0, lastTimestamp=0, velocityX=0, velocityY=0;
+let gestureState="idle";
+let lastFistTime=0, lastClickTime=0;
+let isDragging=false, draggedElement=null, dragOffsetX=0, dragOffsetY=0;
+let landmarkHistory=[];
+let frameCount=0, lastFpsTime=performance.now();
+
+function updateFPS(){ frameCount++; let now=performance.now(); if(now-lastFpsTime>=1000){ fpsSpan.innerText=Math.min(75,Math.round((frameCount*1000)/(now-lastFpsTime)))+" FPS"; frameCount=0; lastFpsTime=now; } requestAnimationFrame(updateFPS); }
+updateFPS();
+
+class SmoothFilter{ constructor(alpha=0.35){ this.alpha=alpha; this.valX=0; this.valY=0; } smooth(x,y){ if(this.valX===0&&this.valY===0){ this.valX=x; this.valY=y; return {x,y}; } this.valX=this.alpha*x+(1-this.alpha)*this.valX; this.valY=this.alpha*y+(1-this.alpha)*this.valY; return {x:this.valX, y:this.valY}; } }
+const smoother = new SmoothFilter(0.35);
+
+function predictMotion(now){ if(!lastTimestamp){ lastTimestamp=now; return {x:smoothedX, y:smoothedY}; } let dt=Math.min(50,Math.max(5,now-lastTimestamp)); if(dt<10) return {x:smoothedX, y:smoothedY}; velocityX=velocityX*0.85+(smoothedX-lastX)/dt*0.12; velocityY=velocityY*0.85+(smoothedY-lastY)/dt*0.12; let predX=smoothedX+velocityX*25, predY=smoothedY+velocityY*25; lastX=smoothedX; lastY=smoothedY; lastTimestamp=now; return {x:Math.min(Math.max(predX,0),window.innerWidth), y:Math.min(Math.max(predY,0),window.innerHeight)}; }
+
+function addLandmark(lm){ landmarkHistory.push({...lm, time:performance.now()}); if(landmarkHistory.length>4) landmarkHistory.shift(); }
+function getStableLandmark(){ if(!landmarkHistory.length) return null; let avgX=0, avgY=0; for(let l of landmarkHistory){ avgX+=l.x; avgY+=l.y; } avgX/=landmarkHistory.length; avgY/=landmarkHistory.length; let recent=landmarkHistory[landmarkHistory.length-1]; return {x:recent.x*0.6+avgX*0.4, y:recent.y*0.6+avgY*0.4}; }
+
+function startLightChecker(){ let canvas=document.createElement('canvas'), ctx=canvas.getContext('2d'); setInterval(()=>{ if(!videoEl.videoWidth) return; canvas.width=80; canvas.height=60; ctx.drawImage(videoEl,0,0,80,60); let imgData=ctx.getImageData(0,0,80,60); let sum=0; for(let i=0;i<imgData.data.length;i+=4) sum+=(imgData.data[i]+imgData.data[i+1]+imgData.data[i+2])/3; let avgBright=sum/(80*60), percent=(avgBright/255)*100; lightAlert.style.display=percent<65?'flex':'none'; }, 800); }
+
+function getFingers(landmarks){
+    let thumbUp=landmarks[4].x>landmarks[2].x?1:0;
+    let indexUp=landmarks[8].y<landmarks[5].y?1:0;
+    let middleUp=landmarks[12].y<landmarks[9].y?1:0;
+    let ringUp=landmarks[16].y<landmarks[13].y?1:0;
+    let pinkyUp=landmarks[20].y<landmarks[17].y?1:0;
+    let total=thumbUp+indexUp+middleUp+ringUp+pinkyUp;
+    let pinchDist=Math.hypot(landmarks[8].x-landmarks[4].x, landmarks[8].y-landmarks[4].y);
+    return {thumbUp,indexUp,middleUp,ringUp,pinkyUp,total,pinchDist};
+}
+
+function performClick(x,y){
+    let elem=document.elementFromPoint(x,y);
+    if(elem && (elem.click || elem.tagName==='BUTTON' || elem.classList.contains('stat-card') || elem.classList.contains('lesson-slot'))){
+        elem.classList.add('hover-glow'); setTimeout(()=>elem.classList.remove('hover-glow'),150);
+        elem.click();
+        cursor.classList.add('click-effect'); setTimeout(()=>cursor.classList.remove('click-effect'),150);
+        showToast(`Tıklandı: ${elem.innerText?.slice(0,20)||'element'}`);
+    }
+}
+
+function startDrag(elem,x,y){
+    if(!elem || !elem.getAttribute('data-draggable')) return false;
+    isDragging=true; draggedElement=elem;
+    let rect=elem.getBoundingClientRect();
+    dragOffsetX=x-rect.left; dragOffsetY=y-rect.top;
+    draggedElement.style.position='relative'; draggedElement.style.zIndex=100;
+    showToast(`Sürükleniyor: ${elem.innerText?.slice(0,20)}`);
+    return true;
+}
+function updateDrag(x,y){ if(isDragging && draggedElement){ draggedElement.style.left=(x-dragOffsetX)+'px'; draggedElement.style.top=(y-dragOffsetY)+'px'; } }
+function stopDrag(){ if(isDragging && draggedElement){ draggedElement.style.zIndex=''; isDragging=false; draggedElement=null; showToast('Bırakıldı'); } }
+
+async function initGesture(){
+    try{ await navigator.mediaDevices.getUserMedia({ video:true }).then(stream=>videoEl.srcObject=stream); }catch(e){ gestureTextSpan.innerText='Kamera yok'; return; }
+    if(typeof Hands==='undefined') return;
+    const hands=new Hands({ locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+    hands.setOptions({ maxNumHands:1, modelComplexity:1, minDetectionConfidence:0.55, minTrackingConfidence:0.5 });
+    hands.onResults(res=>{
+        frameCount++;
+        if(res.multiHandLandmarks?.length){
+            let lm=res.multiHandLandmarks[0];
+            let idx=lm[8];
+            let x=(1-idx.x)*window.innerWidth, y=idx.y*window.innerHeight;
+            addLandmark({x,y});
+            let stable=getStableLandmark();
+            if(!stable) return;
+            let smoothed=smoother.smooth(stable.x,stable.y);
+            smoothedX=smoothed.x; smoothedY=smoothed.y;
+            let pred=predictMotion(performance.now());
+            predictedX=pred.x; predictedY=pred.y;
+            let fingers=getFingers(lm);
+            let now=Date.now();
+            let isFist=fingers.total===0;
+            let isPinch=(fingers.pinchDist<0.045 && fingers.thumbUp && fingers.indexUp && !fingers.middleUp);
+            cursor.style.left=predictedX+'px'; cursor.style.top=predictedY+'px';
+            if(isFist){
+                if(gestureState!=='fist'){ gestureState='fist'; led.classList.add('active'); gestureTextSpan.innerText='✊ Yumruk (tıkla)'; lastFistTime=now; }
+                if(now-lastFistTime>280 && now-lastClickTime>300){ lastClickTime=now; performClick(predictedX,predictedY); }
+                if(isDragging) stopDrag();
+                cursor.classList.remove('drag-mode');
+            } else if(isPinch){
+                if(gestureState!=='drag'){ gestureState='drag'; led.classList.add('active'); gestureTextSpan.innerText='🖐️ Tut ve Sürükle'; }
+                if(!isDragging){
+                    let elem=document.elementFromPoint(predictedX,predictedY);
+                    if(elem && elem.getAttribute('data-draggable')==='true') startDrag(elem,predictedX,predictedY);
+                } else { updateDrag(predictedX,predictedY); }
+                cursor.classList.add('drag-mode');
+            } else {
+                if(gestureState!=='idle'){ gestureState='idle'; led.classList.remove('active'); gestureTextSpan.innerText='☝️ Gezinme'; stopDrag(); }
+                cursor.classList.remove('drag-mode');
+            }
+            let hoverElem=document.elementFromPoint(predictedX,predictedY);
+            document.querySelectorAll('.hover-glow').forEach(el=>el.classList.remove('hover-glow'));
+            if(hoverElem && hoverElem!==document.body && gestureState!=='drag') hoverElem.classList.add('hover-glow');
+        } else {
+            if(gestureState!=='idle'){ gestureState='idle'; led.classList.remove('active'); gestureTextSpan.innerText='👋 El algılanmadı'; stopDrag(); }
+            cursor.classList.remove('drag-mode');
+            document.querySelectorAll('.hover-glow').forEach(el=>el.classList.remove('hover-glow'));
+        }
+    });
+    const camera=new Camera(videoEl,{ onFrame:async()=>{ if(videoEl.readyState>=2) await hands.send({image:videoEl}); }, width:640, height:480 });
+    camera.start();
+    startLightChecker();
+    gestureTextSpan.innerText='✊ Yumruk (tıkla) | 🖐️ Tut/Sürükle';
+    document.querySelectorAll('[data-draggable="true"]').forEach(el=>el.setAttribute('data-draggable','true'));
+}
+initGesture();
+</script>
+</body>
+</html>
