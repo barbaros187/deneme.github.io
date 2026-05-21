@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>GestureX | Profesyonel El Hareketi Kontrol Sistemi</title>
+    <style>
+        /* ----- GLOBAL RESET & DEĞİŞKENLER ----- */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        :root {
+            --bg-gradient-start: #0a0a1a;
+            --bg-gradient-end: #1a1a2e;
+            --glass-bg: rgba(20, 20, 40, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --primary: #5c6fff;
+            --primary-glow: rgba(92, 111, 255, 0.4);
+            --success: #2ecc71;
+            --warning: #f1c40f;
+            --danger: #e74c3c;
+            --text-primary: #ffffff;
+            --text-secondary: #b0b0c0;
+            --card-bg: rgba(30, 30, 50, 0.7);
+            --shadow-xl: 0 25px 40px -12px rgba(0, 0, 0, 0.5);
+            --border-radius-xl: 24px;
+            --border-radius-lg: 18px;
+            --transition-smooth: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, var(--bg-gradient-start), var(--bg-gradient-end));
+            min-height: 100vh;
+            padding: 20px;
+            color: var(--text-primary);
+            backdrop-filter: blur(2px);
+        }
+
+        /* ----- KAMERA KATMANI ----- */
+        .camera-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        #bgCamera {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            opacity: 0.2;
+            filter: blur(4px) brightness(0.7);
+            transition: opacity 0.3s ease;
+        }
+        .camera-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.4) 90%);
+            pointer-events: none;
+        }
+
+        /* ----- PREMIUM CURSOR (İMLEÇ) ----- */
+        .gesture-cursor {
+            position: fixed;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(92,111,255,0.35), rgba(92,111,255,0.05));
+            border: 1.5px solid var(--primary);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10000;
+            will-change: left, top;
+            transition: left 0.008s linear, top 0.008s linear, width 0.12s ease, height 0.12s ease, background 0.1s;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 0 20px var(--primary-glow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+        }
+        .gesture-cursor::before {
+            content: "☝️";
+            position: absolute;
+            top: -28px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 28px;
+            filter: drop-shadow(0 3px 6px rgba(0,0,0,0.3));
+            transition: content 0.08s ease;
+        }
+        .gesture-cursor.drag-mode {
+            width: 76px;
+            height: 76px;
+            background: radial-gradient(circle, rgba(46,204,113,0.4), rgba(46,204,113,0.08));
+            border-color: var(--success);
+            box-shadow: 0 0 28px rgba(46,204,113,0.5);
+        }
+        .gesture-cursor.drag-mode::before {
+            content: "🖐️";
+            font-size: 36px;
+        }
+        .gesture-cursor.click-effect {
+            animation: clickBurst 0.2s cubic-bezier(0.2, 1.2, 0.8, 1);
+        }
+        @keyframes clickBurst {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.9; background: var(--primary); }
+            100% { transform: translate(-50%, -50%) scale(0.7); opacity: 0.5; background: var(--success); }
+        }
+
+        /* ----- MODERN ARAYÜZ PANELLERİ ----- */
+        .app-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 20;
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            border-radius: var(--border-radius-xl);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow-xl);
+            overflow: hidden;
+        }
+
+        /* Navbar (Apple tarzı) */
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 28px;
+            background: rgba(0,0,0,0.2);
+            border-bottom: 1px solid var(--glass-border);
+        }
+        .logo {
+            font-weight: 700;
+            font-size: 1.4rem;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #fff, #a0a0ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .gesture-status-panel {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        .status-led {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--danger);
+            transition: 0.1s;
+            box-shadow: 0 0 6px;
+        }
+        .status-led.active {
+            background: var(--success);
+            animation: ledPulse 0.8s infinite;
+        }
+        @keyframes ledPulse {
+            0% { opacity: 0.5; transform: scale(0.9);}
+            100% { opacity: 1; transform: scale(1.2);}
+        }
+        .fps-meter {
+            font-family: monospace;
+            background: rgba(0,0,0,0.5);
+            padding: 6px 14px;
+            border-radius: 40px;
+            font-size: 13px;
+            font-weight: bold;
+            color: #4ecdc4;
+        }
+
+        /* Ana içerik grid - modüler alan */
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            padding: 28px;
+        }
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border-radius: var(--border-radius-lg);
+            border: 1px solid var(--glass-border);
+            padding: 20px;
+            transition: var(--transition-smooth);
+            cursor: pointer;
+        }
+        .card:hover {
+            transform: translateY(-3px);
+            border-color: var(--primary);
+        }
+        .card h3 {
+            font-size: 1rem;
+            margin-bottom: 12px;
+            color: var(--text-secondary);
+        }
+        .card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .micro-animation {
+            transition: transform 0.12s ease, background 0.1s;
+        }
+        .micro-animation:active {
+            transform: scale(0.96);
+        }
+
+        /* Alert / Light uyarı */
+        .light-alert {
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(20px);
+            padding: 10px 20px;
+            border-radius: 60px;
+            font-size: 12px;
+            border-left: 4px solid var(--warning);
+            z-index: 11000;
+            pointer-events: none;
+            font-weight: 500;
+            color: #ffecb3;
+        }
+
+        @media (max-width: 960px) {
+            .dashboard { grid-template-columns: repeat(2,1fr); gap: 16px; padding: 20px; }
+        }
+        @media (max-width: 600px) {
+            .dashboard { grid-template-columns: 1fr; }
+            .navbar { flex-direction: column; gap: 12px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="camera-layer">
+    <video id="bgCamera" autoplay muted playsinline></video>
+    <div class="camera-overlay"></div>
+</div>
+<div class="gesture-cursor" id="premiumCursor"></div>
+<div class="light-alert" id="lightAlert" style="display: none;">💡 Düşük ışık tespit edildi, elinizi daha iyi aydınlatın</div>
+
+<div class="app-container">
+    <div class="navbar">
+        <div class="logo">✧ GestureX | AI Studio</div>
+        <div class="gesture-status-panel">
+            <div class="status-led" id="gestureLed"></div>
+            <div class="fps-meter" id="fpsMeter">0 FPS</div>
+        </div>
+    </div>
+    <div class="dashboard" id="dashboardGrid">
+        <div class="card" data-draggable="true"><h3>📊 Toplam Ders</h3><div class="value" id="totalDers">0</div><div class="micro-text">Bugünkü ilerleme</div></div>
+        <div class="card" data-draggable="true"><h3>🎯 Verimlilik</h3><div class="value" id="efficiencyVal">0%</div><div class="micro-text">+%12 geçen hafta</div></div>
+        <div class="card" data-draggable="true"><h3>🧠 Akademik Seviye</h3><div class="value" id="academicLvl">Başlangıç</div></div>
+        <div class="card" data-draggable="true"><h3>⚡ Aktif Gesture</h3><div class="value" id="gestureName">Bekleniyor</div></div>
+    </div>
+    <div style="text-align: center; padding: 20px; font-size: 11px; color: #7f8c8d; border-top: 1px solid rgba(255,255,255,0.05);">
+        ✊ Yumruk = Tıkla | 🖐️ Tut+Sürükle (Pinch) | ☝️ Gezin
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script>
+    (function(){
+        // ----------------------------- PROFESYONEL GESTURE ENGINE (v2.0) -----------------------------
+        // ----- CONFIGURATION -----
+        const CONFIG = {
+            SMOOTHING_FACTOR: 0.35,          // EMA smoothing (daha yüksek = daha sönümlü)
+            PREDICTION_WEIGHT: 0.12,          // motion prediction gücü
+            PINCH_DISTANCE_THRESH: 0.045,      // pinch mesafe eşiği
+            FIST_HOLD_TIME_MS: 280,            // yumruk tutma süresi (ms)
+            DRAG_DEBOUNCE_MS: 30,
+            LIGHT_LEVEL_THRESH: 65,            // parlaklık eşiği (0-100)
+            MAX_HISTORY_LEN: 5,
+            USE_MOTION_PREDICTION: true,
+            LANDMARK_HISTORY_SIZE: 4,
+        };
+        
+        // DOM refs
+        const videoEl = document.getElementById('bgCamera');
+        const cursor = document.getElementById('premiumCursor');
+        const led = document.getElementById('gestureLed');
+        const gestureNameSpan = document.getElementById('gestureName');
+        const lightAlertDiv = document.getElementById('lightAlert');
+        const fpsSpan = document.getElementById('fpsMeter');
+        
+        // State değişkenleri
+        let rawX = 0, rawY = 0;
+        let smoothedX = 0, smoothedY = 0;
+        let predictedX = 0, predictedY = 0;
+        let lastX = 0, lastY = 0;
+        let lastTimestamp = 0;
+        let velocityX = 0, velocityY = 0;
+        let gestureState = "idle"; // idle, fist, pinch
+        let lastFistTime = 0;
+        let lastPinchTime = 0;
+        let lastClickTime = 0;
+        let isDragging = false;
+        let draggedElement = null;
+        let dragOffsetX = 0, dragOffsetY = 0;
+        let landmarkHistory = [];
+        
+        // FPS metre
+        let frameCount = 0, lastFpsTime = performance.now();
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                let fps = Math.round((frameCount * 1000) / (now - lastFpsTime));
+                fpsSpan.innerText = Math.min(fps, 75) + " FPS";
+                frameCount = 0;
+                lastFpsTime = now;
+            }
+            requestAnimationFrame(updateFPS);
+        }
+        updateFPS();
+        
+        // ----- SMOOTHING (EMA + Hareket Tahmini) -----
+        class SmoothingFilter {
+            constructor(alpha = 0.35) { this.alpha = alpha; this.valX = 0; this.valY = 0; }
+            smooth(x, y) {
+                if (this.valX === 0 && this.valY === 0) { this.valX = x; this.valY = y; return {x,y}; }
+                this.valX = this.alpha * x + (1 - this.alpha) * this.valX;
+                this.valY = this.alpha * y + (1 - this.alpha) * this.valY;
+                return { x: this.valX, y: this.valY };
+            }
+        }
+        const smoother = new SmoothingFilter(CONFIG.SMOOTHING_FACTOR);
+        
+        // Motion prediction (velocity based)
+        function predictMotion(now) {
+            if (!CONFIG.USE_MOTION_PREDICTION) return { x: smoothedX, y: smoothedY };
+            const dt = Math.min(50, Math.max(5, now - lastTimestamp));
+            if (dt < 10) return { x: smoothedX, y: smoothedY };
+            const alpha = CONFIG.PREDICTION_WEIGHT;
+            velocityX = velocityX * 0.85 + (smoothedX - lastX) / dt * alpha;
+            velocityY = velocityY * 0.85 + (smoothedY - lastY) / dt * alpha;
+            const predX = smoothedX + velocityX * 25;  // 25ms ileri tahmin
+            const predY = smoothedY + velocityY * 25;
+            lastX = smoothedX; lastY = smoothedY;
+            lastTimestamp = now;
+            return { x: Math.min(Math.max(predX, 0), window.innerWidth), y: Math.min(Math.max(predY, 0), window.innerHeight) };
+        }
+        
+        // ----- Landmark History Stabilizer -----
+        function addLandmarkToHistory(lm) {
+            landmarkHistory.push({ ...lm, time: performance.now() });
+            if (landmarkHistory.length > CONFIG.LANDMARK_HISTORY_SIZE) landmarkHistory.shift();
+        }
+        function getStabilizedLandmark() {
+            if (landmarkHistory.length === 0) return null;
+            let avgX = 0, avgY = 0;
+            for (let l of landmarkHistory) { avgX += l.x; avgY += l.y; }
+            avgX /= landmarkHistory.length;
+            avgY /= landmarkHistory.length;
+            // basit weighted recent yaklaşımı
+            let recent = landmarkHistory[landmarkHistory.length-1];
+            let finalX = recent.x * 0.6 + avgX * 0.4;
+            let finalY = recent.y * 0.6 + avgY * 0.4;
+            return { x: finalX, y: finalY };
+        }
+        
+        // ----- Işık Seviyesi Algılama (video frame bazlı) -----
+        let lightCheckerInterval = null;
+        function startLightChecker() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            lightCheckerInterval = setInterval(() => {
+                if (!videoEl.videoWidth || videoEl.readyState < 2) return;
+                canvas.width = 80; canvas.height = 60;
+                ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                let sum = 0;
+                for (let i=0; i<imgData.data.length; i+=4) {
+                    let brightness = (imgData.data[i] + imgData.data[i+1] + imgData.data[i+2]) / 3;
+                    sum += brightness;
+                }
+                let avgBright = sum / (canvas.width * canvas.height);
+                let percent = (avgBright / 255) * 100;
+                if (percent < CONFIG.LIGHT_LEVEL_THRESH && !lightAlertDiv.style.display === 'block') {
+                    lightAlertDiv.style.display = 'flex';
+                } else if (percent >= CONFIG.LIGHT_LEVEL_THRESH) {
+                    lightAlertDiv.style.display = 'none';
+                }
+            }, 800);
+        }
+        
+        // ----- Gesture Detector (fingers state) -----
+        function getFingerStates(landmarks) {
+            const thumbTip = landmarks[4], thumbBase = landmarks[2];
+            const indexTip = landmarks[8], indexBase = landmarks[5];
+            const middleTip = landmarks[12], middleBase = landmarks[9];
+            const ringTip = landmarks[16], ringBase = landmarks[13];
+            const pinkyTip = landmarks[20], pinkyBase = landmarks[17];
+            const thumbUp = thumbTip.x > thumbBase.x ? 1 : 0;
+            const indexUp = indexTip.y < indexBase.y ? 1 : 0;
+            const middleUp = middleTip.y < middleBase.y ? 1 : 0;
+            const ringUp = ringTip.y < ringBase.y ? 1 : 0;
+            const pinkyUp = pinkyTip.y < pinkyBase.y ? 1 : 0;
+            const totalUp = thumbUp + indexUp + middleUp + ringUp + pinkyUp;
+            const pinchDistance = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
+            return { thumbUp, indexUp, middleUp, ringUp, pinkyUp, totalUp, pinchDistance };
+        }
+        
+        // ----- Click Simulation with Debounce -----
+        let pendingClick = false;
+        function performClick(x, y) {
+            if (pendingClick) return;
+            pendingClick = true;
+            const elem = document.elementFromPoint(x, y);
+            if (elem && (elem.click || elem.tagName === 'BUTTON' || elem.classList.contains('card'))) {
+                elem.classList.add('micro-animation');
+                setTimeout(() => elem.classList.remove('micro-animation'), 120);
+                elem.click();
+                cursor.classList.add('click-effect');
+                setTimeout(() => cursor.classList.remove('click-effect'), 150);
+                showToast(`✨ Tıklandı: ${elem.innerText?.slice(0,20) || 'element'}`);
+            }
+            setTimeout(() => { pendingClick = false; }, 200);
+        }
+        
+        // Drag & Drop with smooth fallback
+        function startDrag(element, x, y) {
+            if (!element || !element.getAttribute('data-draggable')) return false;
+            isDragging = true;
+            draggedElement = element;
+            const rect = element.getBoundingClientRect();
+            dragOffsetX = x - rect.left;
+            dragOffsetY = y - rect.top;
+            draggedElement.style.position = 'relative';
+            draggedElement.style.zIndex = '100';
+            showToast(`🖱️ Sürükleniyor: ${draggedElement.innerText.slice(0,25)}`);
+            return true;
+        }
+        
+        function updateDrag(x, y) {
+            if (!isDragging || !draggedElement) return;
+            let newLeft = x - dragOffsetX;
+            let newTop = y - dragOffsetY;
+            draggedElement.style.left = newLeft + 'px';
+            draggedElement.style.top = newTop + 'px';
+        }
+        
+        function stopDrag() {
+            if (isDragging && draggedElement) {
+                draggedElement.style.zIndex = '';
+                isDragging = false;
+                draggedElement = null;
+                showToast(`✅ Bırakıldı`);
+            }
+        }
+        
+        function showToast(msg) {
+            let existing = document.querySelector('.toast-message');
+            if(existing) existing.remove();
+            let div = document.createElement('div');
+            div.className = 'toast-message';
+            div.innerText = msg;
+            div.style.position = 'fixed';
+            div.style.bottom = '80px';
+            div.style.left = '20px';
+            div.style.background = '#1e1e2fcc';
+            div.style.backdropFilter = 'blur(12px)';
+            div.style.padding = '8px 18px';
+            div.style.borderRadius = '40px';
+            div.style.fontSize = '12px';
+            div.style.zIndex = '12000';
+            div.style.color = 'white';
+            div.style.fontWeight = '500';
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 1300);
+        }
+        
+        // ----- Cursor UI update (stabilized, predicted, mod) -----
+        function updateCursorUI(x, y, mode) {
+            cursor.style.left = x + 'px';
+            cursor.style.top = y + 'px';
+            if (mode === 'drag') {
+                cursor.classList.add('drag-mode');
+            } else {
+                cursor.classList.remove('drag-mode');
+            }
+            // highlight hover element
+            let hoverElem = document.elementFromPoint(x, y);
+            document.querySelectorAll('.hover-glow').forEach(el => el.classList.remove('hover-glow'));
+            if (hoverElem && hoverElem !== document.body && mode !== 'drag') {
+                hoverElem.classList.add('hover-glow');
+            }
+        }
+        // CSS ekstra hover glow
+        const style = document.createElement('style');
+        style.textContent = `.hover-glow { outline: 2px solid #5c6fff !important; outline-offset: 2px; transition: outline 0.02s; background: rgba(92,111,255,0.1) !important; border-radius: 8px; }`;
+        document.head.appendChild(style);
+        
+        // ----- Ana MediaPipe Pipeline -----
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60 } } });
+                videoEl.srcObject = stream;
+                await videoEl.play();
+                startLightChecker();
+                return true;
+            } catch(e) { console.warn(e); gestureNameSpan.innerText = "Kamera izni yok"; return false; }
+        }
+        
+        async function initGestureSystem() {
+            const cameraStarted = await startCamera();
+            if (!cameraStarted || typeof Hands === 'undefined') return;
+            const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.55,
+                minTrackingConfidence: 0.5,
+                selfieMode: true
+            });
+            
+            let frameTimer = 0;
+            hands.onResults((results) => {
+                frameCount++;
+                const nowPerf = performance.now();
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const lmRaw = results.multiHandLandmarks[0];
+                    const indexTip = lmRaw[8];
+                    let w = window.innerWidth, h = window.innerHeight;
+                    let rx = (1 - indexTip.x) * w;
+                    let ry = indexTip.y * h;
+                    // Stabilize landmark pozisyonu (history)
+                    addLandmarkToHistory({ x: rx, y: ry, time: nowPerf });
+                    const stable = getStabilizedLandmark();
+                    if (!stable) return;
+                    let targetX = stable.x, targetY = stable.y;
+                    // smoothing
+                    const smoothed = smoother.smooth(targetX, targetY);
+                    smoothedX = smoothed.x; smoothedY = smoothed.y;
+                    const predicted = predictMotion(nowPerf);
+                    predictedX = predicted.x; predictedY = predicted.y;
+                    
+                    const fingers = getFingerStates(lmRaw);
+                    const isFist = fingers.totalUp === 0;  // tüm parmaklar kapalı
+                    const isPinch = (fingers.pinchDistance < CONFIG.PINCH_DISTANCE_THRESH && fingers.thumbUp && fingers.indexUp && !fingers.middleUp);
+                    const now = Date.now();
+                    
+                    // Gesture FSM
+                    if (isFist && !isPinch) {
+                        if (gestureState !== "fist") {
+                            gestureState = "fist";
+                            led.classList.add('active');
+                            gestureNameSpan.innerText = "✊ Yumruk";
+                            lastFistTime = now;
+                        }
+                        if (now - lastFistTime >= CONFIG.FIST_HOLD_TIME_MS && now - lastClickTime > 300) {
+                            lastClickTime = now;
+                            performClick(predictedX, predictedY);
+                        }
+                        updateCursorUI(predictedX, predictedY, "idle");
+                        if (isDragging) stopDrag();
+                    } 
+                    else if (isPinch) {
+                        if (gestureState !== "drag") {
+                            gestureState = "drag";
+                            led.classList.add('active');
+                            gestureNameSpan.innerText = "🖐️ Tut ve Sürükle";
+                            // attempt to start drag on valid element
+                            let elemUnder = document.elementFromPoint(predictedX, predictedY);
+                            if (!isDragging && elemUnder && elemUnder.getAttribute('data-draggable') === 'true') {
+                                startDrag(elemUnder, predictedX, predictedY);
+                            }
+                        }
+                        if (isDragging) {
+                            updateDrag(predictedX, predictedY);
+                        }
+                        updateCursorUI(predictedX, predictedY, "drag");
+                    } 
+                    else {
+                        if (gestureState !== "idle") {
+                            gestureState = "idle";
+                            led.classList.remove('active');
+                            gestureNameSpan.innerText = "☝️ Gezinme";
+                            stopDrag();
+                        }
+                        updateCursorUI(predictedX, predictedY, "idle");
+                    }
+                } else {
+                    // El kayboldu: cursor yavaşça merkeze gitmesin, sadece gizlenme hissi ver.
+                    if (gestureState !== "idle") {
+                        gestureState = "idle";
+                        led.classList.remove('active');
+                        gestureNameSpan.innerText = "👋 El algılanmadı";
+                        stopDrag();
+                    }
+                    // Hover glow temizle
+                    document.querySelectorAll('.hover-glow').forEach(el => el.classList.remove('hover-glow'));
+                }
+            });
+            
+            const camera = new Camera(videoEl, {
+                onFrame: async () => {
+                    if (videoEl.readyState >= 2) {
+                        await hands.send({ image: videoEl });
+                    }
+                },
+                width: 640,
+                height: 480
+            });
+            camera.start();
+            gestureNameSpan.innerText = "Sistem aktif";
+            console.log("🚀 Profesyonel Gesture Engine başlatıldı (60+FPS, stabil, düşük gecikme)");
+        }
+        
+        // ----- Eski demo özellikleri simülasyon (çalışan UI için basit göstergeler) -----
+        function simulateStats() {
+            let totalDersSpan = document.getElementById('totalDers');
+            let efficiencySpan = document.getElementById('efficiencyVal');
+            let academicSpan = document.getElementById('academicLvl');
+            let step = 0;
+            setInterval(() => {
+                let val = parseInt(totalDersSpan.innerText) || 0;
+                if(val < 24) totalDersSpan.innerText = val+1;
+                let eff = parseInt(efficiencySpan.innerText) || 0;
+                if(eff < 88) efficiencySpan.innerText = Math.min(88, eff+2)+'%';
+                academicSpan.innerText = "Uzman 🌟";
+            }, 1800);
+        }
+        simulateStats();
+        
+        // tüm draggable öğeleri işaretle
+        document.querySelectorAll('[data-draggable="true"]').forEach(el => el.setAttribute('data-draggable','true'));
+        
+        initGestureSystem();
+    })();
+</script>
+</body>
+</html>
