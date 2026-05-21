@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Gesture Core | AI Motion Engine</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: radial-gradient(circle at 20% 30%, #0a0a1a, #010105);
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Debug / Test UI — minimal, sadece engine testi için */
+        .debug-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(12px);
+            border-radius: 20px;
+            padding: 16px 24px;
+            border: 1px solid rgba(0,255,255,0.3);
+            color: #0ff;
+            font-family: monospace;
+            font-size: 12px;
+            z-index: 100;
+            pointer-events: none;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            box-shadow: 0 0 20px rgba(0,255,255,0.2);
+        }
+
+        .debug-panel span {
+            color: #fff;
+            font-weight: 800;
+        }
+
+        #gestureState {
+            color: #0ff;
+            text-transform: uppercase;
+        }
+
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        /* Holographic cursor */
+        .cursor {
+            position: fixed;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,255,255,0.4), rgba(0,255,255,0));
+            border: 1.5px solid cyan;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10000;
+            transition: all 0.02s linear;
+            box-shadow: 0 0 18px cyan;
+            backdrop-filter: blur(2px);
+        }
+
+        .cursor.drag {
+            width: 64px;
+            height: 64px;
+            border-color: #0f0;
+            box-shadow: 0 0 28px #0f0;
+            background: radial-gradient(circle, rgba(0,255,0,0.3), rgba(0,255,0,0));
+        }
+
+        .cursor.click-effect {
+            animation: cursorPulse 0.12s ease-out;
+        }
+
+        @keyframes cursorPulse {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            50% { transform: translate(-50%, -50%) scale(0.7); opacity: 0.8; background: cyan; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+
+        .test-area {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(16px);
+            border-radius: 28px;
+            padding: 16px 24px;
+            display: flex;
+            gap: 16px;
+            z-index: 200;
+            border: 1px solid rgba(0,255,255,0.4);
+        }
+
+        .test-btn {
+            background: rgba(0,255,255,0.15);
+            border: 1px solid cyan;
+            color: cyan;
+            padding: 10px 20px;
+            border-radius: 40px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: 0.1s;
+        }
+
+        .test-btn:active {
+            transform: scale(0.96);
+            background: cyan;
+            color: black;
+        }
+
+        .drag-demo {
+            position: fixed;
+            top: 40%;
+            left: 10%;
+            width: 140px;
+            height: 140px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 24px;
+            border: 1px dashed cyan;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            backdrop-filter: blur(8px);
+            transition: 0.02s linear;
+            cursor: grab;
+        }
+    </style>
+</head>
+<body>
+
+<div class="debug-panel">
+    🔮 GESTURE CORE v2.0<br>
+    📍 Cursor: <span id="posX">0</span>, <span id="posY">0</span> &nbsp;| ✨ Confidence: <span id="confVal">0</span>%<br>
+    ✊ Gesture: <span id="gestureState">IDLE</span> &nbsp;| 🎯 FPS: <span id="fpsVal">0</span><br>
+    🤌 Pinch: <span id="pinchDist">0.00</span> &nbsp;| 🔁 Smoothing: EMA
+</div>
+
+<div class="test-area">
+    <div class="test-btn" id="testClickBtn">Test Click ✊</div>
+    <div class="drag-demo" id="dragDemo">🖐️ SÜRÜKLE</div>
+</div>
+
+<div class="cursor" id="hologramCursor"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script>
+    (function(){
+        // ======================== MOTION CORE (Production Grade) ========================
+        
+        // ---- Konfigürasyon ----
+        const CONFIG = {
+            // EMA Smoothing (alpha: 0~1, düşük = daha yumuşak ama gecikmeli)
+            smoothingAlpha: 0.28,
+            // Hareket tahmini (anlık velocity bazlı prediction)
+            predictionWeight: 0.12,
+            // Tıklama debounce (ms)
+            clickDebounceMs: 320,
+            // Pinch eşiği (normalize mesafe)
+            pinchThreshold: 0.045,
+            // Pinch çıkış hysteresis
+            pinchReleaseThreshold: 0.065,
+            // Tracking confidence düşükse cursor hareketini yumuşat / dondur
+            minConfidenceToMove: 0.45,
+            // Düşük ışık adaptasyonu (dynamic threshold)
+            lowLightAdaptation: true,
+            // FPS hedefi (performans throttling yok, ama smoothing optimize)
+            targetFPS: 60,
+            // False positive filtering için minimum finger sayısı değişim süresi
+            gestureStabilityMs: 80
+        };
+        
+        // ---- State Engine ----
+        let rawX = window.innerWidth/2, rawY = window.innerHeight/2;
+        let smoothedX = rawX, smoothedY = rawY;
+        let predictedX = rawX, predictedY = rawY;
+        let velocityX = 0, velocityY = 0;
+        let lastTimestamp = 0;
+        let confidence = 0.0;   // 0-1 arası tracking güveni
+        let lastValidX = rawX, lastValidY = rawY;
+        
+        // Gesture states
+        let gesture = {
+            name: 'IDLE',       // IDLE, FIST, PINCH
+            lastStable: 'IDLE',
+            lastChangeTime: 0,
+            isPinching: false,
+            pinchDistance: 1.0,
+            fistDetected: false,
+            lastClickTime: 0,
+            dragActive: false,
+            draggedElement: null
+        };
+        
+        // MediaPipe hands
+        let handsInstance = null;
+        let cameraInstance = null;
+        let videoElement = null;
+        
+        // DOM elements
+        const cursorDiv = document.getElementById('hologramCursor');
+        const posXSpan = document.getElementById('posX');
+        const posYSpan = document.getElementById('posY');
+        const confSpan = document.getElementById('confVal');
+        const gestureSpan = document.getElementById('gestureState');
+        const pinchDistSpan = document.getElementById('pinchDist');
+        const fpsSpan = document.getElementById('fpsVal');
+        const dragDemoDiv = document.getElementById('dragDemo');
+        
+        // FPS hesaplama
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        
+        // ---- EMA Smoothing + Motion Prediction Engine ----
+        function applySmoothingAndPrediction(newRawX, newRawY, now) {
+            // 1. EMA Smoothing
+            let alpha = CONFIG.smoothingAlpha;
+            let emaX = alpha * newRawX + (1 - alpha) * smoothedX;
+            let emaY = alpha * newRawY + (1 - alpha) * smoothedY;
+            
+            // 2. Velocity hesapla (zaman farkı)
+            if (lastTimestamp > 0) {
+                let dt = Math.min(0.033, (now - lastTimestamp) / 1000);
+                if (dt > 0.001) {
+                    let newVelX = (emaX - smoothedX) / dt;
+                    let newVelY = (emaY - smoothedY) / dt;
+                    // Ağırlıklı ortalama ile velocity smoothing
+                    velocityX = velocityX * 0.7 + newVelX * 0.3;
+                    velocityY = velocityY * 0.7 + newVelY * 0.3;
+                }
+            }
+            
+            // 3. Motion Prediction (hareket devam ediyorsa bir adım ileri)
+            let predWeight = CONFIG.predictionWeight;
+            let predX = emaX + velocityX * 0.016 * predWeight;
+            let predY = emaY + velocityY * 0.016 * predWeight;
+            
+            // Clamp ekran içi
+            predX = Math.min(Math.max(predX, 0), window.innerWidth);
+            predY = Math.min(Math.max(predY, 0), window.innerHeight);
+            
+            smoothedX = emaX;
+            smoothedY = emaY;
+            predictedX = predX;
+            predictedY = predY;
+            lastTimestamp = now;
+            
+            return { x: predX, y: predY };
+        }
+        
+        // ---- Confidence bazlı tracking stabilizasyonu ----
+        function getStabilizedCursor(rawX, rawY, conf, now) {
+            // Eğer confidence çok düşükse, son geçerli pozisyonda kal ya da çok yumuşak geçiş yap
+            if (conf < CONFIG.minConfidenceToMove) {
+                // Soft reacquire: son geçerli noktaya doğru çok yavaş hareket et
+                let recoverStrength = 0.05;
+                let fallbackX = lastValidX * (1 - recoverStrength) + predictedX * recoverStrength;
+                let fallbackY = lastValidY * (1 - recoverStrength) + predictedY * recoverStrength;
+                return { x: fallbackX, y: fallbackY, isLowConf: true };
+            }
+            
+            // Normal durum: smoothing + prediction uygula
+            let smoothed = applySmoothingAndPrediction(rawX, rawY, now);
+            lastValidX = smoothed.x;
+            lastValidY = smoothed.y;
+            return { x: smoothed.x, y: smoothed.y, isLowConf: false };
+        }
+        
+        // ---- False Positive Filtering (gesture stabilizasyonu) ----
+        let pendingGesture = null;
+        let gestureStableTimer = null;
+        
+        function updateGestureState(newGestureName, now) {
+            if (newGestureName === gesture.name) return;
+            
+            // Debounce: gesture geçişlerinde hızlı flicker'ı engelle
+            if (!pendingGesture || pendingGesture.name !== newGestureName) {
+                pendingGesture = { name: newGestureName, timestamp: now };
+                if (gestureStableTimer) clearTimeout(gestureStableTimer);
+                gestureStableTimer = setTimeout(() => {
+                    if (pendingGesture && (Date.now() - pendingGesture.timestamp) >= CONFIG.gestureStabilityMs) {
+                        gesture.name = pendingGesture.name;
+                        gesture.lastStable = gesture.name;
+                        gestureSpan.innerText = gesture.name;
+                        // UI geri bildirim
+                        if (gesture.name === 'FIST') {
+                            cursorDiv.style.borderColor = '#ff3366';
+                            cursorDiv.style.boxShadow = '0 0 22px #ff3366';
+                        } else if (gesture.name === 'PINCH') {
+                            cursorDiv.style.borderColor = '#0f0';
+                            cursorDiv.style.boxShadow = '0 0 28px #0f0';
+                            cursorDiv.classList.add('drag');
+                        } else {
+                            cursorDiv.style.borderColor = 'cyan';
+                            cursorDiv.style.boxShadow = '0 0 18px cyan';
+                            cursorDiv.classList.remove('drag');
+                        }
+                        pendingGesture = null;
+                    }
+                }, CONFIG.gestureStabilityMs);
+            }
+        }
+        
+        // ---- Click Simulation (debounce + haptic) ----
+        function triggerClick(x, y) {
+            const now = Date.now();
+            if (now - gesture.lastClickTime < CONFIG.clickDebounceMs) return false;
+            gesture.lastClickTime = now;
+            
+            // Haptic feedback
+            if (navigator.vibrate) navigator.vibrate(20);
+            
+            // Visual effect
+            cursorDiv.classList.add('click-effect');
+            setTimeout(() => cursorDiv.classList.remove('click-effect'), 120);
+            
+            // DOM click simulation
+            const elem = document.elementFromPoint(x, y);
+            if (elem) {
+                elem.click();
+                // console.log(`Click on: ${elem.tagName}`);
+                return true;
+            }
+            return false;
+        }
+        
+        // ---- Drag & Drop Sistemi (low latency) ----
+        function updateDrag(currentX, currentY) {
+            if (!gesture.dragActive || !gesture.draggedElement) return;
+            // Sürüklenen elementin pozisyonunu güncelle (relative transform ile)
+            if (gesture.draggedElement.style.position !== 'absolute') {
+                gesture.draggedElement.style.position = 'relative';
+            }
+            let dx = currentX - (gesture.lastDragX || currentX);
+            let dy = currentY - (gesture.lastDragY || currentY);
+            let left = parseFloat(gesture.draggedElement.style.left) || 0;
+            let top = parseFloat(gesture.draggedElement.style.top) || 0;
+            gesture.draggedElement.style.left = (left + dx) + 'px';
+            gesture.draggedElement.style.top = (top + dy) + 'px';
+            gesture.lastDragX = currentX;
+            gesture.lastDragY = currentY;
+        }
+        
+        function startDrag(element, startX, startY) {
+            if (!element || !element.getAttribute('data-draggable')) return false;
+            gesture.dragActive = true;
+            gesture.draggedElement = element;
+            gesture.lastDragX = startX;
+            gesture.lastDragY = startY;
+            element.style.transition = '0s';
+            showDebugToast('🖐️ Drag başladı');
+            return true;
+        }
+        
+        function stopDrag() {
+            if (gesture.dragActive && gesture.draggedElement) {
+                gesture.draggedElement.style.transition = '';
+                gesture.draggedElement = null;
+                gesture.dragActive = false;
+                showDebugToast('✔️ Bırakıldı');
+            }
+        }
+        
+        function showDebugToast(msg) {
+            // Toast sadece konsola yaz, test için
+            console.log(`[GESTURE] ${msg}`);
+        }
+        
+        // ---- MediaPipe Results Handler (Core Tracking) ----
+        function onHandResults(results) {
+            const now = performance.now();
+            let newConfidence = 0;
+            let indexPos = null;
+            let pinchDist = 1.0;
+            let fist = false;
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const lm = results.multiHandLandmarks[0];
+                const wrist = lm[0];
+                const indexTip = lm[8];
+                const thumbTip = lm[4];
+                const middleTip = lm[12];
+                
+                // Confidence hesapla: elin boyutuna ve landmark stabilitesine göre basit metrik
+                const handSize = Math.hypot(indexTip.x - wrist.x, indexTip.y - wrist.y);
+                newConfidence = Math.min(0.98, Math.max(0.2, handSize * 1.8));
+                if (newConfidence > 0.85) newConfidence = 0.92;
+                
+                // Normalize koordinat (ekran)
+                let screenX = (1 - indexTip.x) * window.innerWidth;
+                let screenY = indexTip.y * window.innerHeight;
+                indexPos = { x: screenX, y: screenY };
+                
+                // Pinch mesafesi (thumb-index)
+                pinchDist = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
+                
+                // Fist detection: orta parmak index'ten daha yukarıda değil ve tüm parmaklar kapalı
+                const middleUp = middleTip.y < lm[9].y;
+                const indexUp = indexTip.y < lm[5].y;
+                fist = (!indexUp && !middleUp && pinchDist > 0.08);
+                
+                // Düşük ışık adaptasyonu (opsiyonel: confidence düşükse pinch threshold gevşet)
+                if (CONFIG.lowLightAdaptation && newConfidence < 0.55) {
+                    // Düşük ışıkta daha toleranslı pinch
+                    var dynamicPinchThresh = CONFIG.pinchThreshold + 0.012;
+                } else {
+                    var dynamicPinchThresh = CONFIG.pinchThreshold;
+                }
+                
+                const isPinching = (pinchDist < dynamicPinchThresh && indexUp === true);
+                
+                // Gesture State Machine
+                const nowMs = Date.now();
+                if (fist) {
+                    updateGestureState('FIST', nowMs);
+                    // Click: fist ve confidence yeterliyse
+                    if (newConfidence > 0.5 && indexPos) {
+                        triggerClick(predictedX, predictedY);
+                    }
+                } 
+                else if (isPinching) {
+                    updateGestureState('PINCH', nowMs);
+                    // Drag başlat / devam et
+                    if (!gesture.dragActive && indexPos) {
+                        const targetElem = document.elementFromPoint(predictedX, predictedY);
+                        if (targetElem && targetElem.getAttribute('data-draggable')) {
+                            startDrag(targetElem, predictedX, predictedY);
+                        }
+                    }
+                    if (gesture.dragActive && indexPos) {
+                        updateDrag(predictedX, predictedY);
+                    }
+                } 
+                else {
+                    updateGestureState('IDLE', nowMs);
+                    if (gesture.dragActive) stopDrag();
+                }
+                
+                gesture.pinchDistance = pinchDist;
+                gesture.fistDetected = fist;
+                gesture.isPinching = isPinching;
+                pinchDistSpan.innerText = pinchDist.toFixed(3);
+            } 
+            else {
+                // Hiç el yok -> confidence düşük
+                newConfidence = 0.05;
+                updateGestureState('IDLE', Date.now());
+                if (gesture.dragActive) stopDrag();
+                pinchDistSpan.innerText = '0.00';
+            }
+            
+            // Confidence smoothing
+            confidence = confidence * 0.85 + newConfidence * 0.15;
+            confSpan.innerText = Math.floor(confidence * 100);
+            
+            // Cursor pozisyon güncelleme (eğer indexPos varsa)
+            if (indexPos) {
+                rawX = indexPos.x;
+                rawY = indexPos.y;
+            } else {
+                // tracking yoksa, çok yavaş decay
+                rawX = rawX * 0.98 + window.innerWidth/2 * 0.02;
+                rawY = rawY * 0.98 + window.innerHeight/2 * 0.02;
+            }
+            
+            const stabilized = getStabilizedCursor(rawX, rawY, confidence, now);
+            const cursorX = stabilized.x;
+            const cursorY = stabilized.y;
+            
+            // UI update
+            cursorDiv.style.left = cursorX + 'px';
+            cursorDiv.style.top = cursorY + 'px';
+            posXSpan.innerText = Math.floor(cursorX);
+            posYSpan.innerText = Math.floor(cursorY);
+            
+            // FPS hesapla
+            frameCount++;
+            const nowTime = performance.now();
+            if (nowTime - lastFpsTime >= 1000) {
+                let fps = Math.min(75, Math.round((frameCount * 1000) / (nowTime - lastFpsTime)));
+                fpsSpan.innerText = fps;
+                frameCount = 0;
+                lastFpsTime = nowTime;
+            }
+        }
+        
+        // ---- Kamera başlatma ve MediaPipe kurulumu ----
+        async function initMotionCore() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" } });
+                videoElement = document.createElement('video');
+                videoElement.srcObject = stream;
+                videoElement.autoplay = true;
+                videoElement.muted = true;
+                videoElement.playsInline = true;
+                videoElement.style.position = 'fixed';
+                videoElement.style.opacity = '0';
+                videoElement.style.pointerEvents = 'none';
+                document.body.appendChild(videoElement);
+                
+                if (typeof Hands === 'undefined') {
+                    console.error("MediaPipe Hands yüklenemedi");
+                    gestureSpan.innerText = "ERROR";
+                    return;
+                }
+                
+                handsInstance = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+                handsInstance.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.55,
+                    minTrackingConfidence: 0.5
+                });
+                handsInstance.onResults(onHandResults);
+                
+                cameraInstance = new Camera(videoElement, {
+                    onFrame: async () => {
+                        if (handsInstance && videoElement) await handsInstance.send({ image: videoElement });
+                    },
+                    width: 640,
+                    height: 480
+                });
+                cameraInstance.start();
+                
+                console.log("🚀 Motion Core aktif | Stabil tracking");
+                gestureSpan.innerText = "READY";
+            } catch (err) {
+                console.error("Kamera hatası:", err);
+                gestureSpan.innerText = "CAM FAIL";
+            }
+        }
+        
+        // ---- Draggable elementleri işaretle ----
+        function setupDraggableElements() {
+            document.querySelectorAll('.drag-demo, .test-btn').forEach(el => {
+                el.setAttribute('data-draggable', 'true');
+            });
+            dragDemoDiv.setAttribute('data-draggable', 'true');
+        }
+        
+        // ---- Test butonu interaksiyonu ----
+        document.getElementById('testClickBtn')?.addEventListener('click', () => {
+            showDebugToast('✅ Butona tıklandı (fare/gesture)');
+        });
+        
+        // ---- Başlat ----
+        window.addEventListener('load', () => {
+            initMotionCore();
+            setupDraggableElements();
+            // Cursor başlangıç pozisyonu
+            cursorDiv.style.left = window.innerWidth/2 + 'px';
+            cursorDiv.style.top = window.innerHeight/2 + 'px';
+        });
+        
+        // Resize event'lerde sınırları güncelle
+        window.addEventListener('resize', () => {
+            // Hiçbir şey yapma, cursor clamping otomatik
+        });
+        
+    })();
+</script>
+</body>
+</html>
