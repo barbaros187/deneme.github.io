@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Quantum Galaxy Pro | Hand-Tracking 3D Studio</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', 'Inter', 'Poppins', sans-serif;
+        }
+        /* UI Panel - Profesyonel cam efekti */
+        .ui-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(10, 10, 20, 0.75);
+            backdrop-filter: blur(12px);
+            border-radius: 20px;
+            padding: 15px 20px;
+            color: white;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            z-index: 100;
+            font-size: 14px;
+            min-width: 200px;
+            text-align: center;
+            pointer-events: none; /* Tıklamaları 3D'ye geçir */
+        }
+        .gesture-led {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef476f;
+            display: inline-block;
+            margin-right: 8px;
+            box-shadow: 0 0 6px #ef476f;
+            transition: all 0.05s ease;
+        }
+        .gesture-led.active {
+            background: #06d6a0;
+            box-shadow: 0 0 12px #06d6a0;
+            animation: pulse 0.6s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .info-row {
+            margin: 8px 0;
+            font-size: 12px;
+        }
+        .mode-badge {
+            background: #4361ee;
+            padding: 4px 12px;
+            border-radius: 40px;
+            font-weight: bold;
+            font-size: 11px;
+            display: inline-block;
+        }
+        .fps {
+            font-family: monospace;
+            color: #0f0;
+        }
+        h4 {
+            margin: 0 0 10px 0;
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
+        .instruction {
+            font-size: 10px;
+            color: #ccc;
+            margin-top: 8px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            padding-top: 8px;
+        }
+        @media (max-width: 600px) {
+            .ui-panel { transform: scale(0.9); right: 10px; bottom: 10px; padding: 10px 15px; }
+            .info-row { font-size: 10px; }
+        }
+        /* Video arka plan değil, sadece el takibi için ama görünmez */
+        #video-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: -1;
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <video id="video-background" autoplay muted playsinline></video>
+    <div class="ui-panel">
+        <h4>🌀 QUANTUM GALAXY PRO</h4>
+        <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px;">
+            <div class="gesture-led" id="gestureLed"></div>
+            <span id="gestureText">☝️ Elinizi gösterin</span>
+        </div>
+        <div class="info-row">🎮 Mod: <span class="mode-badge" id="modeDisplay">HAREKET</span></div>
+        <div class="info-row">📍 İmleç: <span id="cursorPos">0, 0, 0</span></div>
+        <div class="info-row">⚡ <span class="fps" id="fpsCounter">FPS: 0</span> &nbsp;| 🧊 Nesne: <span id="objectCount">0</span></div>
+        <div class="instruction">
+            ✊ YUMRUK = Mod değiştir (Hareket / Ekle / Sil)<br>
+            🤏 TUT (Başparmak+İşaret) = Etkileşim / Döndür<br>
+            ☝️ İşaret = Gez
+        </div>
+    </div>
+
+    <!-- Kütüphaneler -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js"
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- 3D SAHNE KURULUMU (Galaksi + Parçacıklar) ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x010118);
+        scene.fog = new THREE.FogExp2(0x010118, 0.003);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(15, 8, 18);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true; // Gölgeler için
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // Işıklandırma - Profesyonel
+        const ambientLight = new THREE.AmbientLight(0x222222);
+        scene.add(ambientLight);
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        mainLight.position.set(5, 12, 8);
+        mainLight.castShadow = true;
+        mainLight.receiveShadow = false;
+        scene.add(mainLight);
+        const fillLight = new THREE.PointLight(0x4466cc, 0.5);
+        fillLight.position.set(-3, 4, 5);
+        scene.add(fillLight);
+        const backLight = new THREE.PointLight(0xff66aa, 0.4);
+        backLight.position.set(0, 2, -8);
+        scene.add(backLight);
+        
+        // Dekoratif yıldız tozu (parçacık sistemi)
+        const starGeometry = new THREE.BufferGeometry();
+        const starCount = 1800;
+        const starPositions = new Float32Array(starCount * 3);
+        for (let i = 0; i < starCount; i++) {
+            starPositions[i*3] = (Math.random() - 0.5) * 400;
+            starPositions[i*3+1] = (Math.random() - 0.5) * 150;
+            starPositions[i*3+2] = (Math.random() - 0.5) * 150 - 50;
+        }
+        starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, transparent: true, opacity: 0.6 });
+        const stars = new THREE.Points(starGeometry, starMaterial);
+        scene.add(stars);
+        
+        // Ana galaksi spirali (parçacık halkası)
+        const galaxyGroup = new THREE.Group();
+        const particleCount = 4000;
+        const galaxyGeometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+        for (let i = 0; i < particleCount; i++) {
+            const radius = 5 + Math.random() * 4;
+            const angle = Math.random() * Math.PI * 2;
+            const spiral = radius * 0.8;
+            const x = Math.cos(angle + spiral) * radius;
+            const z = Math.sin(angle + spiral) * radius;
+            const y = Math.sin(angle * 3) * 1.2 * (Math.random() - 0.5);
+            positions[i*3] = x;
+            positions[i*3+1] = y;
+            positions[i*3+2] = z;
+            
+            const color = new THREE.Color().setHSL(0.6 + Math.random() * 0.2, 0.9, 0.6);
+            colors[i*3] = color.r;
+            colors[i*3+1] = color.g;
+            colors[i*3+2] = color.b;
+        }
+        galaxyGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        galaxyGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        const galaxyPoints = new THREE.Points(galaxyGeometry, new THREE.PointsMaterial({ size: 0.12, vertexColors: true, blending: THREE.AdditiveBlending }));
+        galaxyGroup.add(galaxyPoints);
+        
+        // Ortada parlayan küre
+        const coreMat = new THREE.MeshStandardMaterial({ color: 0xff66aa, emissive: 0x882244, emissiveIntensity: 1.2, metalness: 0.8 });
+        const coreSphere = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), coreMat);
+        galaxyGroup.add(coreSphere);
+        
+        scene.add(galaxyGroup);
+        
+        // Etkileşimli küpler (voxel benzeri) - 6x6x6 grid
+        const GRID_SIZE = 8;
+        const BOX_SIZE = 0.65;
+        const OFFSET = -2.8;
+        let interactiveCubes = [];
+        let cubeData = []; // [x][y][z] boolean
+        
+        function initCubes() {
+            cubeData = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(false)));
+            // Rastgele bazı küpler oluştur
+            for(let i=0; i<150; i++) {
+                const x = Math.floor(Math.random() * GRID_SIZE);
+                const y = Math.floor(Math.random() * GRID_SIZE);
+                const z = Math.floor(Math.random() * GRID_SIZE);
+                if(!cubeData[x][y][z]) {
+                    cubeData[x][y][z] = true;
+                    addCubeMesh(x, y, z);
+                }
+            }
+            updateObjectCount();
+        }
+        
+        function addCubeMesh(x, y, z, colorHex = null) {
+            const geometry = new THREE.BoxGeometry(BOX_SIZE, BOX_SIZE, BOX_SIZE);
+            const hue = (x / GRID_SIZE) * 0.8 + (z / GRID_SIZE) * 0.2;
+            const color = colorHex || new THREE.Color().setHSL(hue, 0.9, 0.55);
+            const material = new THREE.MeshStandardMaterial({ color: color, emissive: 0x221133, roughness: 0.25, metalness: 0.7 });
+            const cube = new THREE.Mesh(geometry, material);
+            cube.position.set(OFFSET + x * BOX_SIZE, OFFSET + y * BOX_SIZE, OFFSET + z * BOX_SIZE);
+            cube.userData = { x, y, z, type: 'voxel' };
+            cube.castShadow = true;
+            cube.receiveShadow = false;
+            scene.add(cube);
+            interactiveCubes.push(cube);
+        }
+        
+        function removeCubeMesh(x, y, z) {
+            const index = interactiveCubes.findIndex(cube => cube.userData.x === x && cube.userData.y === y && cube.userData.z === z);
+            if(index !== -1) {
+                scene.remove(interactiveCubes[index]);
+                interactiveCubes.splice(index, 1);
+            }
+        }
+        
+        function updateObjectCount() {
+            document.getElementById('objectCount').innerText = interactiveCubes.length;
+        }
+        
+        function addVoxel(x, y, z) {
+            if(x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE && z >= 0 && z < GRID_SIZE && !cubeData[x][y][z]) {
+                cubeData[x][y][z] = true;
+                addCubeMesh(x, y, z);
+                updateObjectCount();
+                return true;
+            }
+            return false;
+        }
+        
+        function removeVoxel(x, y, z) {
+            if(x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE && z >= 0 && z < GRID_SIZE && cubeData[x][y][z]) {
+                cubeData[x][y][z] = false;
+                removeCubeMesh(x, y, z);
+                updateObjectCount();
+                return true;
+            }
+            return false;
+        }
+        
+        function clearAllVoxels() {
+            for(let x=0; x<GRID_SIZE; x++)
+                for(let y=0; y<GRID_SIZE; y++)
+                    for(let z=0; z<GRID_SIZE; z++)
+                        if(cubeData[x][y][z]) removeVoxel(x, y, z);
+        }
+        
+        // İmleç küresi
+        let cursorSphere = null;
+        function createCursor() {
+            if(cursorSphere) scene.remove(cursorSphere);
+            const geo = new THREE.SphereGeometry(0.35, 16, 16);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x0088aa });
+            cursorSphere = new THREE.Mesh(geo, mat);
+            scene.add(cursorSphere);
+        }
+        
+        function updateCursor(x, y, z) {
+            if(!cursorSphere) createCursor();
+            cursorSphere.position.set(OFFSET + x * BOX_SIZE, OFFSET + y * BOX_SIZE, OFFSET + z * BOX_SIZE);
+        }
+        
+        initCubes();
+        createCursor();
+        
+        // Kamera kontrolü (el ile döndürme)
+        let targetRotationX = 0;
+        let targetRotationY = 0;
+        let currentRotX = 0;
+        let currentRotY = 0;
+        let cameraRadius = 22;
+        let cameraHeightBase = 5;
+        
+        function updateCameraFromRotation() {
+            const x = Math.sin(currentRotY) * Math.cos(currentRotX) * cameraRadius;
+            const y = Math.sin(currentRotX) * cameraRadius + cameraHeightBase;
+            const z = Math.cos(currentRotY) * Math.cos(currentRotX) * cameraRadius;
+            camera.position.set(x, y, z);
+            camera.lookAt(0, 0, 0);
+        }
+        
+        function rotateCamera(deltaX, deltaY) {
+            targetRotationY += deltaX * 0.008;
+            targetRotationX += deltaY * 0.008;
+            targetRotationX = Math.max(-1.2, Math.min(1.2, targetRotationX));
+            // interpolasyon
+            currentRotX += (targetRotationX - currentRotX) * 0.2;
+            currentRotY += (targetRotationY - currentRotY) * 0.2;
+            updateCameraFromRotation();
+        }
+        
+        function resetCameraView() {
+            targetRotationX = 0.4;
+            targetRotationY = 0.8;
+            currentRotX = 0.4;
+            currentRotY = 0.8;
+            updateCameraFromRotation();
+        }
+        resetCameraView();
+        
+        // Animasyon (galaksi dönsün)
+        let time = 0;
+        function animateScene() {
+            requestAnimationFrame(animateScene);
+            time += 0.005;
+            galaxyGroup.rotation.y = time * 0.2;
+            stars.rotation.x = time * 0.03;
+            stars.rotation.y = time * 0.05;
+            renderer.render(scene, camera);
+        }
+        animateScene();
+        
+        // --- EL TAKİBİ & MEDIAPIPE ---
+        const video = document.getElementById('video-background');
+        let hands = null;
+        let gestureState = "idle";
+        let pinchActive = false;
+        let lastAction = 0;
+        let currentMode = "move"; // move, add, remove
+        let cursorX = 4, cursorY = 4, cursorZ = 4;
+        let lastFistTime = 0;
+        let lastPinchStart = 0;
+        
+        const gestureLed = document.getElementById('gestureLed');
+        const gestureText = document.getElementById('gestureText');
+        const modeDisplaySpan = document.getElementById('modeDisplay');
+        const cursorPosSpan = document.getElementById('cursorPos');
+        const fpsSpan = document.getElementById('fpsCounter');
+        
+        function setMode(mode) {
+            currentMode = mode;
+            modeDisplaySpan.innerText = mode === "move" ? "HAREKET" : (mode === "add" ? "EKLE" : "SİL");
+            gestureText.innerText = `${modeDisplaySpan.innerText} MODU`;
+        }
+        
+        function getFingerState(landmarks) {
+            const thumbTip = landmarks[4];
+            const indexTip = landmarks[8];
+            const middleTip = landmarks[12];
+            const ringTip = landmarks[16];
+            const pinkyTip = landmarks[20];
+            const thumbMCP = landmarks[2];
+            const indexMCP = landmarks[5];
+            const middleMCP = landmarks[9];
+            const ringMCP = landmarks[13];
+            const pinkyMCP = landmarks[17];
+            const thumbUp = thumbTip.x > thumbMCP.x;
+            const indexUp = indexTip.y < indexMCP.y;
+            const middleUp = middleTip.y < middleMCP.y;
+            const ringUp = ringTip.y < ringMCP.y;
+            const pinkyUp = pinkyTip.y < pinkyMCP.y;
+            const totalUp = (thumbUp?1:0) + (indexUp?1:0) + (middleUp?1:0) + (ringUp?1:0) + (pinkyUp?1:0);
+            const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+            const isPinch = pinchDist < 0.045 && indexUp && thumbUp;
+            return { totalUp, indexUp, thumbUp, isPinch };
+        }
+        
+        async function initHandTracking() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                await video.play();
+                
+                hands = new Hands({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                });
+                hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.6,
+                    minTrackingConfidence: 0.6
+                });
+                
+                hands.onResults((results) => {
+                    if(results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                        const hand = results.multiHandLandmarks[0];
+                        const indexTip = hand[8];
+                        const videoW = video.videoWidth;
+                        const videoH = video.videoHeight;
+                        if(videoW && videoH) {
+                            // Ekran koordinatları (imleç için UI'da yok ama 3D voxel için)
+                            const nx = 1 - indexTip.x;
+                            const ny = indexTip.y;
+                            cursorX = Math.floor(nx * GRID_SIZE);
+                            cursorY = Math.floor(ny * GRID_SIZE);
+                            cursorX = Math.min(GRID_SIZE-1, Math.max(0, cursorX));
+                            cursorY = Math.min(GRID_SIZE-1, Math.max(0, cursorY));
+                            // Z ekseni sabit kalabilir veya parmak derinliği ile değişebilir, basitlik için sabit 4
+                            cursorZ = 4;
+                            updateCursor(cursorX, cursorY, cursorZ);
+                            cursorPosSpan.innerText = `${cursorX}, ${cursorY}, ${cursorZ}`;
+                            
+                            const { totalUp, isPinch } = getFingerState(hand);
+                            const now = Date.now();
+                            const isFist = totalUp === 0;
+                            
+                            if(isFist && now - lastFistTime > 400) {
+                                lastFistTime = now;
+                                // Mod değiştir
+                                if(currentMode === "move") setMode("add");
+                                else if(currentMode === "add") setMode("remove");
+                                else setMode("move");
+                                gestureLed.classList.add('active');
+                                setTimeout(() => { if(!pinchActive) gestureLed.classList.remove('active'); }, 300);
+                                gestureText.innerText = `${modeDisplaySpan.innerText} MODU`;
+                            }
+                            else if(isPinch) {
+                                if(!pinchActive) {
+                                    pinchActive = true;
+                                    gestureLed.classList.add('active');
+                                    lastPinchStart = now;
+                                    if(currentMode === "move") gestureText.innerText = "🖐️ Döndürme aktif";
+                                    else if(currentMode === "add") {
+                                        addVoxel(cursorX, cursorY, cursorZ);
+                                        gestureText.innerText = "➕ Eklendi";
+                                    } else if(currentMode === "remove") {
+                                        removeVoxel(cursorX, cursorY, cursorZ);
+                                        gestureText.innerText = "➖ Silindi";
+                                    }
+                                } else {
+                                    if(currentMode === "move") {
+                                        // Döndürme
+                                        const dx = indexTip.x - hand[8].x;
+                                        const dy = indexTip.y - hand[8].y;
+                                        if(Math.abs(dx) > 0.003 || Math.abs(dy) > 0.003)
+                                            rotateCamera(dx * 80, dy * 80);
+                                    } else {
+                                        // Sürekli ekleme/silme için cooldown
+                                        if(now - lastAction > 180) {
+                                            if(currentMode === "add") addVoxel(cursorX, cursorY, cursorZ);
+                                            else if(currentMode === "remove") removeVoxel(cursorX, cursorY, cursorZ);
+                                            lastAction = now;
+                                        }
+                                    }
+                                }
+                            }
+                            else {
+                                if(pinchActive) {
+                                    pinchActive = false;
+                                    gestureLed.classList.remove('active');
+                                    gestureText.innerText = currentMode === "move" ? "☝️ Hareket modu" : (currentMode === "add" ? "➕ Eklemek için tut" : "➖ Silmek için tut");
+                                } else {
+                                    gestureText.innerText = currentMode === "move" ? "☝️ Gez | Tut ve döndür" : (currentMode === "add" ? "➕ Tut ve ekle" : "➖ Tut ve sil");
+                                }
+                            }
+                        }
+                    } else {
+                        pinchActive = false;
+                        gestureLed.classList.remove('active');
+                        gestureText.innerText = "☝️ Elinizi gösterin";
+                    }
+                });
+                
+                const cameraUtils = new Camera(video, {
+                    onFrame: async () => { if(hands) await hands.send({ image: video }); },
+                    width: 640, height: 480
+                });
+                cameraUtils.start();
+                
+            } catch(e) {
+                gestureText.innerText = "❌ Kamera izni gerekli";
+                console.error(e);
+            }
+        }
+        
+        initHandTracking();
+        
+        // FPS sayacı
+        let frameCount = 0;
+        let lastFpsUpdate = performance.now();
+        function countFPS() {
+            frameCount++;
+            const now = performance.now();
+            if(now - lastFpsUpdate >= 1000) {
+                fpsSpan.innerText = `FPS: ${frameCount}`;
+                frameCount = 0;
+                lastFpsUpdate = now;
+            }
+            requestAnimationFrame(countFPS);
+        }
+        countFPS();
+        
+        // Pencere boyutlandırma
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Küçük bir yardım: temizle butonu yoksa klavye ile C tuşu temizler
+        window.addEventListener('keydown', (e) => {
+            if(e.key === 'c' || e.key === 'C') clearAllVoxels();
+            if(e.key === 'r' || e.key === 'R') resetCameraView();
+        });
+        
+        console.log('Quantum Galaxy Pro Ready | Hand-Tracking Active');
+    </script>
+</body>
+</html>
