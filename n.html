@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
+    <meta name="description" content="Akademik Asistan Pro - Yapay Zeka Destekli Akıllı Ders Programı ve Öğrenme Analiz Sistemi">
+    <meta name="theme-color" content="#4361ee">
+    <title>Akademik Asistan Pro | YZ Destekli Akıllı Ders Programı</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        :root {
+            --primary: #4361ee;
+            --primary-dark: #3a0ca3;
+            --primary-light: #7209b7;
+            --secondary: #4cc9f0;
+            --success: #06d6a0;
+            --danger: #ef476f;
+            --warning: #ffd166;
+            --info: #118ab2;
+            --dark: #073b4c;
+            --light: #f8f9fa;
+            --gray-100: #f8f9fa;
+            --gray-200: #e9ecef;
+            --gray-300: #dee2e6;
+            --gray-400: #ced4da;
+            --gray-500: #adb5bd;
+            --gray-600: #6c757d;
+            --gray-700: #495057;
+            --gray-800: #343a40;
+            --gray-900: #212529;
+            --border-radius-sm: 6px;
+            --border-radius: 10px;
+            --border-radius-lg: 14px;
+            --border-radius-xl: 20px;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+            --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+            --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            padding: 10px;
+            position: relative;
+        }
+
+        /* Kamera Arka Planı */
+        #bgCamera {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 0;
+            opacity: 0.3;
+            transform: scaleX(-1);
+            pointer-events: none;
+        }
+
+        .camera-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* Hareket Göstergesi */
+        .gesture-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(10px);
+            border-radius: 50px;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            z-index: 1000;
+            font-family: monospace;
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+        .gesture-led {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef476f;
+            transition: all 0.1s ease;
+            box-shadow: 0 0 5px rgba(239,71,111,0.5);
+        }
+        .gesture-led.active {
+            background: #06d6a0;
+            box-shadow: 0 0 10px #06d6a0;
+            animation: pulse 0.5s ease infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+        .gesture-text {
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .gesture-tip {
+            font-size: 9px;
+            color: #aaa;
+            margin-left: 5px;
+        }
+
+        .app-wrapper {
+            max-width: 1600px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 10;
+        }
+
+        .app-container {
+            background: rgba(255, 255, 255, 0.94);
+            backdrop-filter: blur(4px);
+            border-radius: var(--border-radius-xl);
+            overflow: hidden;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .main-navbar {
+            display: flex;
+            background: rgba(255, 255, 255, 0.96);
+            padding: 0 16px;
+            border-bottom: 1px solid var(--gray-200);
+            overflow-x: auto;
+            scrollbar-width: thin;
+            gap: 2px;
+        }
+
+        .nav-tab {
+            padding: 12px 16px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 12px;
+            color: var(--gray-600);
+            border-bottom: 2px solid transparent;
+            transition: var(--transition);
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .nav-tab i { font-size: 14px; }
+        .nav-tab:hover { color: var(--primary); background: rgba(67,97,238,0.05); }
+        .nav-tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .content-panel { display: none; animation: fadeInUp 0.3s ease; }
+        .content-panel.active-panel { display: block; }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+            padding: 16px;
+            background: rgba(248, 249, 250, 0.9);
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        @media (max-width: 1024px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 640px) { .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 12px; } }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: var(--border-radius);
+            padding: 12px;
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition);
+            border: 1px solid var(--gray-200);
+        }
+
+        .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+        .stat-title {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--gray-500);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .time-settings-panel {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--gray-200);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .timetable-wrapper {
+            overflow-x: auto;
+            overflow-y: auto;
+            max-height: 60vh;
+            padding: 12px;
+        }
+
+        .timetable-grid {
+            display: grid;
+            grid-template-columns: 60px repeat(7, minmax(110px, 1fr));
+            gap: 1px;
+            background: #000;
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            min-width: 800px;
+        }
+
+        .time-col { background: rgba(255, 255, 255, 0.95); position: sticky; left: 0; z-index: 10; }
+        .time-header, .day-header {
+            padding: 10px 5px;
+            font-weight: 700;
+            font-size: 11px;
+            background: rgba(255, 255, 255, 0.95);
+            text-align: center;
+            border-bottom: 1px solid #000;
+            min-height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+        .day-header { 
+            background: rgba(248, 249, 250, 0.95); 
+            color: var(--primary);
+            border-right: 1px solid #000;
+        }
+        .time-cell {
+            padding: 8px 3px;
+            font-size: 10px;
+            font-weight: 500;
+            background: rgba(255, 255, 255, 0.95);
+            text-align: center;
+            border-bottom: 1px solid #000;
+            border-right: 1px solid #000;
+            min-height: 80px;
+        }
+        .lesson-slot {
+            background: rgba(255, 255, 255, 0.95);
+            min-height: 80px;
+            padding: 5px;
+            cursor: pointer;
+            transition: var(--transition);
+            border-bottom: 1px solid #000;
+            border-right: 1px solid #000;
+        }
+        .lesson-slot:hover { background: rgba(67,97,238,0.1); transform: scale(1.01); z-index: 2; }
+        .lesson-item {
+            border-left: 4px solid;
+            border-radius: var(--border-radius-sm);
+            padding: 6px;
+            height: 100%;
+            background: white;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .btn-primary, .btn-secondary, .btn-danger, .btn-outline {
+            padding: 8px 16px;
+            border-radius: 25px;
+            font-weight: 600;
+            font-size: 11px;
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: none;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); }
+        .btn-secondary { background: var(--gray-200); color: var(--gray-700); }
+        .btn-secondary:hover { background: var(--gray-300); }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: #d90429; }
+        .btn-outline { background: transparent; border: 1px solid var(--gray-300); color: var(--gray-700); }
+        .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            padding: 20px;
+        }
+        .modal-card {
+            background: white;
+            border-radius: var(--border-radius-lg);
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 24px;
+        }
+        .modal-large { max-width: 900px; }
+        .modal-xl { max-width: 1200px; }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--gray-700);
+            display: block;
+            margin-bottom: 6px;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: var(--border-radius-sm);
+            border: 1px solid var(--gray-300);
+            font-family: inherit;
+            font-size: 12px;
+            transition: var(--transition);
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 9px;
+            font-weight: 600;
+        }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-warning { background: #fff3cd; color: #856404; }
+        .badge-danger { background: #f8d7da; color: #721c24; }
+        .badge-info { background: #d1ecf1; color: #0c5460; }
+        .badge-primary { background: #e8f0fe; color: var(--primary); }
+
+        .progress-bar { width: 100%; height: 4px; background: var(--gray-200); border-radius: 4px; overflow: hidden; margin-top: 5px; }
+        .progress-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+
+        .toast-msg {
+            position: fixed;
+            bottom: 80px;
+            left: 20px;
+            background: var(--gray-800);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 40px;
+            font-size: 12px;
+            z-index: 3000;
+            box-shadow: var(--shadow-md);
+            animation: slideInLeft 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-50px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .history-container { padding: 20px; }
+        .history-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+        }
+        .history-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: var(--border-radius);
+            padding: 15px;
+            border: 1px solid var(--gray-200);
+            transition: var(--transition);
+        }
+        .history-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+        .compare-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+            max-height: 55vh;
+            overflow-y: auto;
+            padding: 5px;
+        }
+        .compare-card {
+            background: rgba(248, 249, 250, 0.95);
+            border-radius: var(--border-radius);
+            padding: 15px;
+            border: 2px solid transparent;
+            transition: var(--transition);
+        }
+        .compare-card:hover { border-color: var(--primary); background: white; }
+
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            padding: 20px;
+        }
+        .analytics-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            border: 1px solid var(--gray-200);
+        }
+        .analytics-card h3 {
+            font-size: 14px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--primary);
+        }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--gray-200); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: var(--gray-500); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+        .click-animation {
+            animation: clickPulse 0.2s ease !important;
+        }
+        @keyframes clickPulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(0.96); background: rgba(67,97,238,0.3); }
+            100% { transform: scale(1); }
+        }
+
+        footer {
+            text-align: center;
+            padding: 12px;
+            border-top: 1px solid var(--gray-200);
+            font-size: 10px;
+            color: var(--gray-500);
+            background: rgba(255,255,255,0.8);
+        }
+    </style>
+</head>
+<body>
+
+<video id="bgCamera" autoplay muted playsinline></video>
+<div class="camera-overlay"></div>
+
+<div class="gesture-panel">
+    <div class="gesture-led" id="gestureLed"></div>
+    <div class="gesture-text" id="gestureText">🖐️ Bekleniyor...</div>
+    <div class="gesture-tip">| Başparmak kaldır → 1sn → Tıkla</div>
+</div>
+
+<div class="app-wrapper">
+    <div class="app-container">
+        <div class="main-navbar">
+            <div class="nav-tab active" data-tab="create"><i class="fas fa-calendar-alt"></i> Program</div>
+            <div class="nav-tab" data-tab="history"><i class="fas fa-history"></i> Geçmiş</div>
+            <div class="nav-tab" data-tab="compare"><i class="fas fa-chart-line"></i> Karşılaştır</div>
+            <div class="nav-tab" data-tab="analytics"><i class="fas fa-chart-pie"></i> Analiz</div>
+            <div class="nav-tab" data-tab="settings"><i class="fas fa-cog"></i> Ayarlar</div>
+        </div>
+
+        <div class="content-panel active-panel" id="createPanel">
+            <div class="stats-grid">
+                <div class="stat-card"><div class="stat-title"><i class="fas fa-clock"></i> Toplam Ders</div><div class="stat-value" id="totalHoursStat">0</div></div>
+                <div class="stat-card"><div class="stat-title"><i class="fas fa-question-circle"></i> Toplam Soru</div><div class="stat-value" id="totalQuestionsStat">0</div></div>
+                <div class="stat-card"><div class="stat-title"><i class="fas fa-chart-line"></i> Verimlilik</div><div class="stat-value" id="efficiencyScore">0</div></div>
+                <div class="stat-card"><div class="stat-title"><i class="fas fa-trophy"></i> Akademik Seviye</div><div class="stat-value" id="academicLevel">Başlangıç</div></div>
+                <div class="stat-card"><div class="stat-title"><i class="fas fa-bullseye"></i> Hedef Tamamlama</div><div class="stat-value" id="targetCompletion">0%</div></div>
+            </div>
+            <div class="time-settings-panel">
+                <div><i class="far fa-clock"></i> <strong>Zaman Dilimleri</strong></div>
+                <div id="timeSlotsContainer" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-secondary" id="addTimeSlotBtn"><i class="fas fa-plus"></i> Ekle</button>
+                    <button class="btn-secondary" id="resetTimeSlotsBtn"><i class="fas fa-undo"></i> Sıfırla</button>
+                </div>
+            </div>
+            <div class="timetable-wrapper"><div class="timetable-grid" id="timetableGrid"></div></div>
+            <div style="padding: 16px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--gray-200);">
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-secondary" id="clearAllBtn"><i class="fas fa-trash-alt"></i> Temizle</button>
+                    <button class="btn-secondary" id="quickTemplateBtn"><i class="fas fa-magic"></i> Hızlı Şablon</button>
+                    <button class="btn-secondary" id="exportPdfBtn"><i class="fas fa-file-pdf"></i> PDF</button>
+                </div>
+                <button class="btn-primary" id="saveProgramBtn"><i class="fas fa-archive"></i> Programı Arşivle</button>
+            </div>
+        </div>
+
+        <div class="content-panel" id="historyPanel">
+            <div class="stats-grid" style="padding-bottom: 0;">
+                <div class="stat-card"><div class="stat-title"><i class="fas fa-archive"></i> Arşivlenen</div><div class="stat-value" id="archivedCount">0</div></div>
+                <div class="stat-card"><div class="stat-title"><i class="fas fa-star"></i> Favoriler</div><div class="stat-value" id="favoriteCount">0</div></div>
+                <div class="stat-card"><div class="stat-title"><i class="fas fa-calendar-week"></i> Son Program</div><div class="stat-value" id="lastProgramDate">-</div></div>
+            </div>
+            <div class="history-container" id="historyContainer"></div>
+        </div>
+
+        <div class="content-panel" id="comparePanel">
+            <div style="padding: 20px;">
+                <h3 style="margin-bottom: 10px; font-size: 16px;"><i class="fas fa-chart-line"></i> Program Karşılaştırma</h3>
+                <p style="margin-bottom: 15px; font-size: 11px; color: var(--gray-600);">Karşılaştırmak istediğiniz programları seçin (sınırsız)</p>
+                <div style="margin-bottom: 15px; display: flex; gap: 8px;">
+                    <button class="btn-secondary" id="selectAllCompareBtn"><i class="fas fa-check-double"></i> Tümünü Seç</button>
+                    <button class="btn-secondary" id="clearAllCompareBtn"><i class="fas fa-times"></i> Temizle</button>
+                </div>
+                <div id="compareProgramsList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-bottom: 20px; max-height: 400px; overflow-y: auto;"></div>
+                <button class="btn-primary" id="doCompareBtn" style="width: 100%; justify-content: center;"><i class="fas fa-chart-line"></i> Detaylı Karşılaştırma Yap</button>
+            </div>
+        </div>
+
+        <div class="content-panel" id="analyticsPanel">
+            <div class="analytics-grid">
+                <div class="analytics-card"><h3><i class="fas fa-chart-bar"></i> Haftalık Çalışma</h3><canvas id="weeklyChart" style="max-height: 220px;"></canvas></div>
+                <div class="analytics-card"><h3><i class="fas fa-chart-line"></i> Ders Bazlı Verimlilik</h3><canvas id="performanceChart" style="max-height: 220px;"></canvas></div>
+                <div class="analytics-card"><h3><i class="fas fa-fire"></i> Çalışma Isısı</h3><div id="heatmap"></div></div>
+            </div>
+        </div>
+
+        <div class="content-panel" id="settingsPanel">
+            <div style="padding: 20px;">
+                <h3 style="margin-bottom: 15px; font-size: 16px;"><i class="fas fa-cog"></i> Ayarlar</h3>
+                <div class="stat-card" style="margin-bottom: 15px;">
+                    <h4 style="margin-bottom: 10px; font-size: 13px;"><i class="fas fa-palette"></i> Tema</h4>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn-secondary" onclick="changeTheme('light')">Açık</button>
+                        <button class="btn-secondary" onclick="changeTheme('dark')">Koyu</button>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <h4 style="margin-bottom: 10px; font-size: 13px;"><i class="fas fa-database"></i> Veri Yönetimi</h4>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn-secondary" onclick="exportAllData()"><i class="fas fa-download"></i> Dışa Aktar</button>
+                        <button class="btn-secondary" onclick="importData()"><i class="fas fa-upload"></i> İçe Aktar</button>
+                        <button class="btn-danger" onclick="clearAllData()"><i class="fas fa-trash"></i> Tümünü Sil</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <i class="fas fa-brain"></i> Akademik Asistan Pro v10.0 | ✋ Başparmak kaldır → 1 saniye bekleyerek tıkla
+        </footer>
+    </div>
+</div>
+
+<div id="lessonModal" class="modal">
+    <div class="modal-card">
+        <h3 id="modalTitle" style="font-size: 18px; margin-bottom: 20px;">Ders Bilgileri</h3>
+        <input type="hidden" id="modalDay"><input type="hidden" id="modalHour">
+        <div class="form-group"><label>Ders Adı</label><input type="text" id="lessonName" placeholder="Örn: Matematik"></div>
+        <div class="form-group"><label>Kategori</label><select id="lessonCategory"><option value="sayısal">Sayısal</option><option value="sözel">Sözel</option><option value="eşit ağırlık">Eşit Ağırlık</option><option value="dil">Dil</option></select></div>
+        <div class="form-group"><label>Notlar</label><textarea id="lessonNote" rows="2"></textarea></div>
+        <div class="form-group"><label>Çözülen Soru</label><input type="number" id="questionCount" value="0"></div>
+        <div class="form-group"><label>Hedef Soru</label><input type="number" id="targetQuestion" value="50"></div>
+        <div class="form-group"><label>Renk</label><input type="color" id="lessonColor" value="#4361ee"></div>
+        <div class="form-group"><label>Önem (1-5)</label><select id="importance"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select></div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+            <button class="btn-secondary" id="closeModalBtn">İptal</button>
+            <button class="btn-primary" id="saveLessonBtn">Kaydet</button>
+            <button class="btn-danger" id="deleteLessonBtn" style="display:none;">Sil</button>
+        </div>
+    </div>
+</div>
+
+<div id="programDetailModal" class="modal">
+    <div class="modal-card modal-large">
+        <h3 style="font-size: 18px; margin-bottom: 15px;"><i class="fas fa-info-circle"></i> Program Detayı</h3>
+        <div id="programDetailContent"></div>
+        <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
+            <button class="btn-secondary" id="closeDetailModalBtn">Kapat</button>
+        </div>
+    </div>
+</div>
+
+<div id="compareResultModal" class="modal">
+    <div class="modal-card modal-xl">
+        <h3 style="font-size: 18px; margin-bottom: 15px;"><i class="fas fa-chart-line"></i> Karşılaştırma Sonuçları</h3>
+        <div id="compareResultContent"></div>
+        <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
+            <button class="btn-primary" onclick="closeCompareModal()">Kapat</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==================== KAMERA VE HAREKET ALGILAMA ====================
+    const bgVideo = document.getElementById('bgCamera');
+    const gestureLed = document.getElementById('gestureLed');
+    const gestureTextSpan = document.getElementById('gestureText');
+    
+    let cameraStream = null;
+    let lastClickTime = 0;
+    const CLICK_DELAY = 1000;
+    let thumbUpActive = false;
+    let thumbUpStart = 0;
+    
+    async function startCamera() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            cameraStream = stream;
+            bgVideo.srcObject = stream;
+            await bgVideo.play();
+            console.log('✅ Kamera başlatıldı');
+            return true;
+        } catch (err) {
+            console.error('❌ Kamera hatası:', err);
+            gestureTextSpan.innerHTML = '⚠️ Kamera izni gerekli';
+            return false;
+        }
+    }
+    
+    function updateGestureUI(gesture, isActive) {
+        gestureTextSpan.innerHTML = gesture;
+        if (isActive) {
+            gestureLed.classList.add('active');
+        } else {
+            gestureLed.classList.remove('active');
+        }
+    }
+    
+    function showToast(message, type = 'success') {
+        let existing = document.querySelector('.toast-msg');
+        if (existing) existing.remove();
+        let div = document.createElement('div');
+        div.className = 'toast-msg';
+        div.innerHTML = `<i class="fas ${type === 'success' ? 'fa-hand-peace' : 'fa-exclamation-circle'}"></i> ${message}`;
+        div.style.background = type === 'success' ? '#06d6a0' : '#ef476f';
+        document.body.appendChild(div);
+        setTimeout(() => div.remove(), 2000);
+    }
+    
+    function getCenterElement() {
+        const x = window.innerWidth / 2;
+        const y = window.innerHeight / 2;
+        return document.elementFromPoint(x, y);
+    }
+    
+    function clickElement(element) {
+        if (!element) return false;
+        
+        element.classList.add('click-animation');
+        setTimeout(() => element.classList.remove('click-animation'), 200);
+        
+        element.click();
+        
+        let elemName = element.textContent?.trim()?.substring(0, 30) || 
+                      element.querySelector('strong')?.textContent || 
+                      element.tagName;
+        showToast(`✋ ${elemName}`);
+        console.log('🔘 Tıklandı:', element);
+        return true;
+    }
+    
+    async function initGestureControl() {
+        const cameraOk = await startCamera();
+        if (!cameraOk) return;
+        
+        if (typeof Hands === 'undefined') {
+            console.error('MediaPipe yüklenemedi');
+            gestureTextSpan.innerHTML = '⚠️ MediaPipe hatası';
+            return;
+        }
+        
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+        
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        
+        hands.onResults((results) => {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const lm = results.multiHandLandmarks[0];
+                const thumbTip = lm[4];
+                const thumbBase = lm[2];
+                const indexTip = lm[8];
+                const indexBase = lm[5];
+                
+                const thumbUp = thumbTip.y < thumbBase.y;
+                const indexUp = indexTip.y < indexBase.y;
+                const now = Date.now();
+                
+                if (thumbUp && !indexUp) {
+                    if (!thumbUpActive) {
+                        thumbUpActive = true;
+                        thumbUpStart = now;
+                        updateGestureUI('👍 Başparmak kalkık - Bekle...', true);
+                    }
+                    
+                    const elapsed = now - thumbUpStart;
+                    if (elapsed >= CLICK_DELAY && (now - lastClickTime) >= CLICK_DELAY) {
+                        lastClickTime = now;
+                        updateGestureUI('🔘 TIKLANIYOR!', true);
+                        
+                        const target = getCenterElement();
+                        if (target) {
+                            clickElement(target);
+                        } else {
+                            updateGestureUI('⚠️ Element yok', false);
+                            setTimeout(() => updateGestureUI('👍 Başparmak kalkık', true), 500);
+                        }
+                        
+                        setTimeout(() => {
+                            if (thumbUpActive) updateGestureUI('👍 Başparmak kalkık', true);
+                        }, 400);
+                    }
+                } else {
+                    if (thumbUpActive) {
+                        thumbUpActive = false;
+                        updateGestureUI('🖐️ Bekleniyor...', false);
+                    } else {
+                        updateGestureUI('🖐️ El algılandı', false);
+                    }
+                }
+            } else {
+                thumbUpActive = false;
+                updateGestureUI('🖐️ Bekleniyor...', false);
+            }
+        });
+        
+        if (bgVideo) {
+            const camera = new Camera(bgVideo, {
+                onFrame: async () => {
+                    if (bgVideo.readyState >= 2) {
+                        await hands.send({ image: bgVideo });
+                    }
+                },
+                width: 640,
+                height: 480
+            });
+            camera.start();
+            console.log('🎯 El hareketi algılama aktif!');
+            updateGestureUI('🖐️ Hazır', false);
+        }
+    }
+    
+    // ==================== UYGULAMA KODU ====================
+    const DAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
+    let TIME_SLOTS = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"];
+    let timetable = [];
+    let programHistory = [];
+    let selectedCompare = [];
+    let weeklyChart = null, perfChart = null;
+    
+    function escapeHtml(str) { if (!str) return ""; return str.replace(/[&<>]/g, m => m === "&" ? "&amp;" : m === "<" ? "&lt;" : "&gt;"); }
+    function formatDate(date) { return new Date(date).toLocaleDateString('tr-TR'); }
+    function initTimetable() { timetable = DAYS.map(() => Array(TIME_SLOTS.length).fill(null)); }
+    
+    function updateStats() {
+        let hours = 0, questions = 0, target = 0;
+        for (let d = 0; d < DAYS.length; d++) {
+            for (let h = 0; h < TIME_SLOTS.length; h++) {
+                let l = timetable[d]?.[h];
+                if (l?.name) { hours++; questions += l.questionCount || 0; target += l.targetQuestion || 50; }
+            }
+        }
+        let efficiency = hours > 0 ? Math.min(100, Math.floor((questions / (hours * 15)) * 100)) : 0;
+        let completion = target > 0 ? Math.min(100, Math.floor((questions / target) * 100)) : 0;
+        document.getElementById("totalHoursStat").innerHTML = hours;
+        document.getElementById("totalQuestionsStat").innerHTML = questions;
+        document.getElementById("efficiencyScore").innerHTML = efficiency;
+        document.getElementById("targetCompletion").innerHTML = completion + "%";
+        let level = efficiency >= 80 ? "Uzman" : efficiency >= 60 ? "İleri" : efficiency >= 40 ? "Orta" : efficiency >= 20 ? "Gelişen" : "Başlangıç";
+        document.getElementById("academicLevel").innerHTML = level;
+    }
+    
+    function renderTimetable() {
+        let container = document.getElementById("timetableGrid");
+        container.innerHTML = "";
+        let timeCol = document.createElement("div"); timeCol.className = "time-col";
+        let th = document.createElement("div"); th.className = "time-header"; th.innerHTML = "<i class='fas fa-clock'></i>"; timeCol.appendChild(th);
+        TIME_SLOTS.forEach(slot => { let c = document.createElement("div"); c.className = "time-cell"; c.innerHTML = `<span>${escapeHtml(slot)}</span>`; timeCol.appendChild(c); });
+        container.appendChild(timeCol);
+        for (let d = 0; d < DAYS.length; d++) {
+            let dayCard = document.createElement("div");
+            let dh = document.createElement("div"); dh.className = "day-header"; dh.innerHTML = `<i class="fas fa-calendar-day"></i> ${DAYS[d]}`; dayCard.appendChild(dh);
+            for (let h = 0; h < TIME_SLOTS.length; h++) {
+                let slotDiv = document.createElement("div"); slotDiv.className = "lesson-slot";
+                let lesson = timetable[d]?.[h];
+                if (lesson?.name) {
+                    let inner = document.createElement("div"); inner.className = "lesson-item"; inner.style.borderLeftColor = lesson.color;
+                    let progress = ((lesson.questionCount || 0) / (lesson.targetQuestion || 50)) * 100;
+                    inner.innerHTML = `<div style="display:flex;justify-content:space-between;"><strong>${escapeHtml(lesson.name)}</strong><button class="delete-lesson" style="background:none;border:none;color:var(--danger);cursor:pointer;"><i class="fas fa-trash"></i></button></div><div class="progress-bar"><div class="progress-fill" style="width:${Math.min(100,progress)}%; background:${lesson.color};"></div></div><div style="font-size:9px;">${lesson.questionCount || 0}/${lesson.targetQuestion || 50}</div>`;
+                    let del = inner.querySelector(".delete-lesson"); del.addEventListener("click", (e) => { e.stopPropagation(); deleteLesson(d, h); });
+                    slotDiv.appendChild(inner);
+                } else {
+                    slotDiv.innerHTML = `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:gray;"><i class="far fa-plus-square"></i></div>`;
+                }
+                slotDiv.addEventListener("click", (e) => { if (!e.target.closest(".delete-lesson")) openModal(d, h, lesson); });
+                dayCard.appendChild(slotDiv);
+            }
+            container.appendChild(dayCard);
+        }
+    }
+    
+    function deleteLesson(day, hour) { if (timetable[day]?.[hour]) { timetable[day][hour] = null; renderTimetable(); updateStats(); updateAnalytics(); showToast("Ders silindi"); } }
+    function saveLesson(day, hour, data) { if (!data.name.trim()) return; timetable[day][hour] = { name: data.name.trim(), note: data.note || "", color: data.color, questionCount: parseInt(data.questionCount) || 0, targetQuestion: parseInt(data.targetQuestion) || 50, category: data.category, importance: parseInt(data.importance) || 3, date: new Date().toISOString() }; renderTimetable(); updateStats(); updateAnalytics(); showToast("Ders kaydedildi"); }
+    
+    let curD = -1, curH = -1;
+    function openModal(d, h, lesson) { curD = d; curH = h; document.getElementById("modalTitle").innerHTML = lesson ? `✏️ ${DAYS[d]} ${TIME_SLOTS[h]}` : `➕ Yeni Ders`; document.getElementById("lessonName").value = lesson?.name || ""; document.getElementById("lessonNote").value = lesson?.note || ""; document.getElementById("lessonColor").value = lesson?.color || "#4361ee"; document.getElementById("questionCount").value = lesson?.questionCount || 0; document.getElementById("targetQuestion").value = lesson?.targetQuestion || 50; document.getElementById("lessonCategory").value = lesson?.category || "sayısal"; document.getElementById("importance").value = lesson?.importance || 3; document.getElementById("deleteLessonBtn").style.display = lesson ? "inline-flex" : "none"; document.getElementById("lessonModal").style.display = "flex"; }
+    function closeModal() { document.getElementById("lessonModal").style.display = "none"; curD = -1; }
+    
+    function saveCurrentProgram() {
+        let total = timetable.flat().filter(l => l?.name).length;
+        if (total === 0) return showToast("Kaydedilecek ders yok", "error");
+        let newProg = { id: Date.now(), name: `Program ${new Date().toLocaleString('tr-TR')}`, date: new Date().toISOString(), timetable: JSON.parse(JSON.stringify(timetable)), timeSlots: [...TIME_SLOTS], lessonCount: total, favorite: false };
+        programHistory.unshift(newProg);
+        renderHistory();
+        updateArchiveStats();
+        renderCompareList();
+        showToast("Program arşivlendi");
+    }
+    
+    function renderHistory() {
+        let container = document.getElementById("historyContainer");
+        if (programHistory.length === 0) { container.innerHTML = `<div style="text-align:center;padding:50px;"><i class="fas fa-archive" style="font-size:48px;opacity:0.3;"></i><p>Henüz kayıtlı program yok</p><button class="btn-primary" onclick="document.querySelector('[data-tab=\\'create\\']').click()">Program Oluştur</button></div>`; return; }
+        let html = '<div class="history-grid">';
+        programHistory.forEach(p => { html += `<div class="history-card"><div><strong>${escapeHtml(p.name)}</strong> <small>${formatDate(p.date)}</small></div><div style="margin:10px 0;">📚 ${p.lessonCount} ders</div><div><button class="btn-outline view-program" data-id="${p.id}" style="font-size:10px;"><i class="fas fa-eye"></i> Görüntüle</button> <button class="btn-danger delete-program" data-id="${p.id}" style="font-size:10px;"><i class="fas fa-trash"></i> Sil</button></div></div>`; });
+        html += '</div>'; container.innerHTML = html;
+        document.querySelectorAll(".view-program").forEach(btn => btn.addEventListener("click", (e) => { let p = programHistory.find(p => p.id === parseInt(btn.dataset.id)); if (p) showProgramDetail(p); }));
+        document.querySelectorAll(".delete-program").forEach(btn => btn.addEventListener("click", (e) => { programHistory = programHistory.filter(p => p.id !== parseInt(btn.dataset.id)); renderHistory(); updateArchiveStats(); renderCompareList(); showToast("Program silindi"); }));
+    }
+    
+    function showProgramDetail(program) {
+        let totalHours = program.timetable.flat().filter(l => l?.name).length;
+        let totalQuestions = program.timetable.flat().reduce((s, l) => s + (l?.questionCount || 0), 0);
+        let html = `<div><strong>${escapeHtml(program.name)}</strong> - ${formatDate(program.date)}</div><div style="margin:15px 0; display:flex; gap:15px;"><div>📚 ${totalHours} ders</div><div>📊 ${totalQuestions} soru</div></div><div class="timetable-grid" style="min-width:auto; font-size:8px;">`;
+        let days = ["Pzt","Sal","Çar","Per","Cum","Cmt","Paz"];
+        html += `<div class="time-header"></div>${days.map(d => `<div class="day-header">${d}</div>`).join('')}`;
+        for (let h = 0; h < program.timeSlots.length; h++) {
+            html += `<div class="time-header">${program.timeSlots[h]}</div>`;
+            for (let d = 0; d < 7; d++) {
+                let l = program.timetable[d]?.[h];
+                html += `<div class="lesson-slot" style="min-height:50px;">${l?.name ? `<div style="border-left:3px solid ${l.color}; padding:3px;"><strong>${l.name}</strong><br>${l.questionCount}/${l.targetQuestion}</div>` : '—'}</div>`;
+            }
+        }
+        html += `</div><div style="margin-top:15px;"><button class="btn-primary" id="loadProgramBtn"><i class="fas fa-upload"></i> Bu Programı Yükle</button></div>`;
+        document.getElementById("programDetailContent").innerHTML = html;
+        document.getElementById("loadProgramBtn")?.addEventListener("click", () => { timetable = JSON.parse(JSON.stringify(program.timetable)); TIME_SLOTS = [...program.timeSlots]; renderTimetable(); updateStats(); updateAnalytics(); document.querySelector('[data-tab="create"]').click(); document.getElementById("programDetailModal").style.display = "none"; showToast("Program yüklendi"); });
+        document.getElementById("programDetailModal").style.display = "flex";
+    }
+    
+    function updateArchiveStats() { document.getElementById("archivedCount").innerHTML = programHistory.length; document.getElementById("favoriteCount").innerHTML = programHistory.filter(p => p.favorite).length; if (programHistory.length) document.getElementById("lastProgramDate").innerHTML = formatDate(programHistory[0].date); }
+    
+    function renderCompareList() {
+        let container = document.getElementById("compareProgramsList");
+        if (programHistory.length === 0) { container.innerHTML = "<p>Karşılaştırma için program arşivleyin.</p>"; return; }
+        let html = "";
+        programHistory.forEach(p => { html += `<div style="display:flex; align-items:center; gap:10px; padding:10px; background:white; border-radius:10px;"><input type="checkbox" class="compare-cb" data-id="${p.id}"><div><strong>${escapeHtml(p.name)}</strong><br><small>${p.lessonCount} ders</small></div></div>`; });
+        container.innerHTML = html;
+        selectedCompare = [];
+        document.querySelectorAll(".compare-cb").forEach(cb => cb.addEventListener("change", (e) => { let id = parseInt(cb.dataset.id); if (cb.checked) selectedCompare.push(id); else selectedCompare = selectedCompare.filter(i => i !== id); }));
+    }
+    
+    function doCompare() {
+        if (selectedCompare.length < 2) { showToast("En az 2 program seçin", "error"); return; }
+        let programs = programHistory.filter(p => selectedCompare.includes(p.id));
+        let html = '<div class="compare-grid">';
+        programs.forEach(p => {
+            let hours = p.timetable.flat().filter(l => l?.name).length;
+            let questions = p.timetable.flat().reduce((s, l) => s + (l?.questionCount || 0), 0);
+            html += `<div class="compare-card"><strong>${escapeHtml(p.name)}</strong><br>📚 ${hours} ders<br>📊 ${questions} soru<br>📅 ${formatDate(p.date)}</div>`;
+        });
+        html += `</div><div style="margin-top:15px; padding:15px; background:var(--gray-100); border-radius:10px;"><strong>📊 Analiz</strong><br>Ortalama ders: ${(programs.reduce((s,p)=>s+p.timetable.flat().filter(l=>l?.name).length,0)/programs.length).toFixed(1)}<br>Ortalama soru: ${(programs.reduce((s,p)=>s+p.timetable.flat().reduce((t,l)=>t+(l?.questionCount||0),0),0)/programs.length).toFixed(0)}</div>`;
+        document.getElementById("compareResultContent").innerHTML = html;
+        document.getElementById("compareResultModal").style.display = "flex";
+    }
+    
+    function closeCompareModal() { document.getElementById("compareResultModal").style.display = "none"; }
+    
+    function updateAnalytics() {
+        let weeklyData = DAYS.map((_, d) => timetable[d]?.filter(l => l?.name).length || 0);
+        if (weeklyChart) weeklyChart.destroy();
+        weeklyChart = new Chart(document.getElementById('weeklyChart'), { type: 'bar', data: { labels: DAYS, datasets: [{ label: 'Ders Saati', data: weeklyData, backgroundColor: '#4361ee', borderRadius: 6 }] }, options: { responsive: true } });
+        let lessonMap = new Map();
+        for (let d of timetable) for (let l of d) if (l?.name) lessonMap.set(l.name, (lessonMap.get(l.name) || 0) + 1);
+        if (perfChart) perfChart.destroy();
+        perfChart = new Chart(document.getElementById('performanceChart'), { type: 'radar', data: { labels: Array.from(lessonMap.keys()), datasets: [{ label: 'Ders Dağılımı', data: Array.from(lessonMap.values()), backgroundColor: 'rgba(67,97,238,0.2)', borderColor: '#4361ee' }] }, options: { responsive: true } });
+        let heatHtml = "<div style='display:grid;grid-template-columns:repeat(7,1fr);gap:5px;'>";
+        DAYS.forEach((day, i) => { let h = weeklyData[i]; heatHtml += `<div style="text-align:center;padding:8px;background:${h>0?'#e8f0fe':'#f8f9fa'};border-radius:8px;"><strong>${day.substring(0,3)}</strong><br>${h>5?'🔥🔥🔥':h>3?'🔥🔥':h>0?'🔥':'❄️'}<br>${h}</div>`; });
+        heatHtml += "</div>";
+        document.getElementById("heatmap").innerHTML = heatHtml;
+    }
+    
+    function quickFillAllDays() {
+        let templates = ["Matematik", "Fizik", "Kimya", "Biyoloji", "Türkçe", "Tarih", "İngilizce"];
+        for (let d = 0; d < DAYS.length; d++) for (let h = 0; h < TIME_SLOTS.length; h++) if (!timetable[d]?.[h]) { if (!timetable[d]) timetable[d] = Array(TIME_SLOTS.length).fill(null); timetable[d][h] = { name: templates[Math.floor(Math.random() * templates.length)], note: "Şablon", color: `#${Math.floor(Math.random() * 16777215).toString(16)}`, questionCount: Math.floor(Math.random() * 30), targetQuestion: 50, category: "sayısal", importance: Math.floor(Math.random() * 5) + 1, date: new Date().toISOString() }; }
+        renderTimetable(); updateStats(); updateAnalytics(); showToast("Şablon eklendi");
+    }
+    
+    function exportToPDF() { let element = document.getElementById("timetableGrid"); html2pdf().set({ margin: 0.5, filename: `program_${Date.now()}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'a3', orientation: 'landscape' } }).from(element).save(); showToast("PDF oluşturuluyor"); }
+    function exportAllData() { let a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify({ timetable, timeSlots: TIME_SLOTS, history: programHistory })], { type: "application/json" })); a.download = `backup_${Date.now()}.json`; a.click(); showToast("Veriler dışa aktarıldı"); }
+    function importData() { let input = document.createElement("input"); input.type = "file"; input.accept = "application/json"; input.onchange = e => { let reader = new FileReader(); reader.onload = evt => { try { let data = JSON.parse(evt.target.result); if (data.timetable) timetable = data.timetable; if (data.timeSlots) TIME_SLOTS = data.timeSlots; if (data.history) programHistory = data.history; renderTimetable(); updateStats(); updateAnalytics(); renderHistory(); updateArchiveStats(); renderCompareList(); showToast("Veriler içe aktarıldı"); } catch(err) { showToast("Hatalı dosya", "error"); } }; reader.readAsText(input.files[0]); }; input.click(); }
+    function clearAllData() { if (confirm("TÜM VERİLER SİLİNECEK! Devam?")) { initTimetable(); TIME_SLOTS = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"]; programHistory = []; renderTimetable(); updateStats(); updateAnalytics(); renderHistory(); updateArchiveStats(); renderCompareList(); showToast("Tüm veriler silindi"); } }
+    function changeTheme(theme) { let root = document.documentElement; if (theme === 'dark') { document.querySelector('.app-container').style.background = "rgba(30,30,46,0.94)"; root.style.setProperty('--gray-100', '#2a2a3e'); root.style.setProperty('--gray-200', '#3a3a4e'); } else { document.querySelector('.app-container').style.background = "rgba(255,255,255,0.94)"; root.style.setProperty('--gray-100', '#f8f9fa'); root.style.setProperty('--gray-200', '#e9ecef'); } showToast(`Tema: ${theme}`); }
+    
+    function renderTimeControls() {
+        let cont = document.getElementById("timeSlotsContainer"); cont.innerHTML = "";
+        TIME_SLOTS.forEach((slot, idx) => { let div = document.createElement("div"); div.style.cssText = "background:white;border:1px solid #ddd;border-radius:20px;padding:4px 12px;display:inline-flex;gap:8px;"; div.innerHTML = `<input type="text" value="${escapeHtml(slot)}" data-idx="${idx}" style="border:none;width:70px;font-size:11px;"><button class="remove-slot" data-idx="${idx}" style="background:none;border:none;color:red;cursor:pointer;"><i class="fas fa-times"></i></button>`; cont.appendChild(div); });
+        document.querySelectorAll(".remove-slot").forEach(btn => btn.addEventListener("click", (e) => { let idx = parseInt(btn.dataset.idx); if (TIME_SLOTS.length <= 1) return; TIME_SLOTS = TIME_SLOTS.filter((_, i) => i !== idx); let newTT = DAYS.map(() => Array(TIME_SLOTS.length).fill(null)); for (let i = 0; i < DAYS.length; i++) for (let j = 0; j < Math.min(timetable[i]?.length, TIME_SLOTS.length); j++) if (timetable[i]?.[j]) newTT[i][j] = { ...timetable[i][j] }; timetable = newTT; renderTimeControls(); renderTimetable(); updateStats(); updateAnalytics(); showToast("Zaman dilimi silindi"); }));
+        document.querySelectorAll(".slot-input").forEach(inp => inp.addEventListener("change", (e) => { let idx = parseInt(inp.dataset.idx); if (inp.value.trim()) TIME_SLOTS[idx] = inp.value.trim(); renderTimetable(); showToast("Güncellendi"); }));
+    }
+    
+    document.addEventListener("DOMContentLoaded", () => { initTimetable(); renderTimeControls(); renderTimetable(); updateStats(); updateAnalytics(); initGestureControl(); });
+    document.querySelectorAll('.nav-tab').forEach(t => t.addEventListener("click", () => { let tab = t.dataset.tab; document.querySelectorAll('.nav-tab').forEach(tt => tt.classList.remove('active')); t.classList.add('active'); document.querySelectorAll('.content-panel').forEach(p => p.classList.remove('active-panel')); document.getElementById(tab === 'create' ? 'createPanel' : tab === 'history' ? 'historyPanel' : tab === 'compare' ? 'comparePanel' : tab === 'analytics' ? 'analyticsPanel' : 'settingsPanel').classList.add('active-panel'); if (tab === 'history') renderHistory(); if (tab === 'compare') renderCompareList(); if (tab === 'analytics') updateAnalytics(); }));
+    document.getElementById("saveProgramBtn")?.addEventListener("click", saveCurrentProgram);
+    document.getElementById("saveLessonBtn")?.addEventListener("click", () => { if (curD !== -1) saveLesson(curD, curH, { name: document.getElementById("lessonName").value, note: document.getElementById("lessonNote").value, color: document.getElementById("lessonColor").value, questionCount: document.getElementById("questionCount").value, targetQuestion: document.getElementById("targetQuestion").value, category: document.getElementById("lessonCategory").value, importance: document.getElementById("importance").value }); closeModal(); });
+    document.getElementById("deleteLessonBtn")?.addEventListener("click", () => { if (curD !== -1) deleteLesson(curD, curH); closeModal(); });
+    document.getElementById("closeModalBtn")?.addEventListener("click", closeModal);
+    document.getElementById("closeDetailModalBtn")?.addEventListener("click", () => document.getElementById("programDetailModal").style.display = "none");
+    document.getElementById("clearAllBtn")?.addEventListener("click", () => { if (confirm("Tüm dersler silinsin?")) { initTimetable(); renderTimetable(); updateStats(); updateAnalytics(); showToast("Program temizlendi"); } });
+    document.getElementById("addTimeSlotBtn")?.addEventListener("click", () => { TIME_SLOTS.push("Yeni"); let newTT = DAYS.map(() => Array(TIME_SLOTS.length).fill(null)); for (let i = 0; i < DAYS.length; i++) for (let j = 0; j < Math.min(timetable[i]?.length, TIME_SLOTS.length - 1); j++) if (timetable[i]?.[j]) newTT[i][j] = { ...timetable[i][j] }; timetable = newTT; renderTimeControls(); renderTimetable(); updateStats(); updateAnalytics(); showToast("Zaman dilimi eklendi"); });
+    document.getElementById("resetTimeSlotsBtn")?.addEventListener("click", () => { TIME_SLOTS = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"]; let newTT = DAYS.map(() => Array(TIME_SLOTS.length).fill(null)); for (let i = 0; i < DAYS.length; i++) for (let j = 0; j < Math.min(timetable[i]?.length, TIME_SLOTS.length); j++) if (timetable[i]?.[j]) newTT[i][j] = { ...timetable[i][j] }; timetable = newTT; renderTimeControls(); renderTimetable(); updateStats(); updateAnalytics(); showToast("Zaman dilimleri sıfırlandı"); });
+    document.getElementById("exportPdfBtn")?.addEventListener("click", exportToPDF);
+    document.getElementById("quickTemplateBtn")?.addEventListener("click", quickFillAllDays);
+    document.getElementById("doCompareBtn")?.addEventListener("click", doCompare);
+    document.getElementById("selectAllCompareBtn")?.addEventListener("click", () => { document.querySelectorAll(".compare-cb").forEach(cb => { if (!cb.checked) { cb.checked = true; let id = parseInt(cb.dataset.id); if (!selectedCompare.includes(id)) selectedCompare.push(id); } }); showToast("Tüm programlar seçildi"); });
+    document.getElementById("clearAllCompareBtn")?.addEventListener("click", () => { document.querySelectorAll(".compare-cb").forEach(cb => cb.checked = false); selectedCompare = []; showToast("Seçimler temizlendi"); });
+    window.addEventListener("click", (e) => { if (e.target === document.getElementById("lessonModal")) closeModal(); if (e.target === document.getElementById("programDetailModal")) document.getElementById("programDetailModal").style.display = "none"; if (e.target === document.getElementById("compareResultModal")) closeCompareModal(); });
+    window.changeTheme = changeTheme; window.exportAllData = exportAllData; window.importData = importData; window.clearAllData = clearAllData;
+</script>
+</body>
+</html>
