@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Voxel Studio Pro | Hand-Tracking 3D Editor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+            font-family: 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* Ana container */
+        .app-container {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* 3D Canvas Alanı */
+        .canvas-container {
+            flex: 3;
+            position: relative;
+            background: #0a0a2e;
+            margin: 15px;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 25px 45px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        #voxelCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: none;
+        }
+
+        /* Kamera Paneli */
+        .camera-panel {
+            flex: 1;
+            background: rgba(20, 20, 40, 0.8);
+            backdrop-filter: blur(20px);
+            margin: 15px 15px 15px 0;
+            border-radius: 24px;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 25px 45px rgba(0,0,0,0.2);
+        }
+
+        /* Kamera Görüntüsü */
+        .camera-wrapper {
+            background: #000;
+            border-radius: 20px;
+            overflow: hidden;
+            aspect-ratio: 4 / 3;
+            position: relative;
+            border: 1px solid rgba(0,255,255,0.3);
+            box-shadow: 0 0 20px rgba(0,255,255,0.1);
+        }
+
+        #videoElement {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        .camera-overlay {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            right: 12px;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+            border-radius: 30px;
+            padding: 8px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .gesture-led {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ef476f;
+            box-shadow: 0 0 8px #ef476f;
+            transition: all 0.05s ease;
+        }
+
+        .gesture-led.active {
+            background: #06d6a0;
+            box-shadow: 0 0 12px #06d6a0;
+            animation: pulse 0.6s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.2); }
+        }
+
+        .gesture-text {
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .fps-counter {
+            font-family: 'Courier New', monospace;
+            color: #00ffff;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        /* Kontroller */
+        .controls-section {
+            background: rgba(0,0,0,0.4);
+            border-radius: 20px;
+            padding: 15px;
+        }
+
+        .mode-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 40px;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-family: inherit;
+            background: rgba(30,30,50,0.8);
+            color: #aaa;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .mode-btn.active {
+            background: #4361ee;
+            color: white;
+            box-shadow: 0 0 15px rgba(67,97,238,0.5);
+        }
+
+        .mode-btn[data-mode="add"]:hover { background: #28a745; color: white; }
+        .mode-btn[data-mode="remove"]:hover { background: #dc3545; color: white; }
+
+        .info-panel {
+            background: rgba(0,0,0,0.4);
+            border-radius: 20px;
+            padding: 15px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            font-size: 12px;
+        }
+
+        .info-label { color: #888; }
+        .info-value { color: #00ffff; font-weight: bold; font-family: monospace; }
+
+        .voxel-count {
+            font-size: 28px;
+            font-weight: 800;
+            color: #ffd166;
+            text-align: center;
+            margin: 10px 0;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 30px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            background: rgba(50,50,70,0.8);
+            color: white;
+            transition: 0.1s;
+        }
+
+        .action-btn:active { transform: scale(0.96); }
+
+        .help-text {
+            font-size: 9px;
+            color: #666;
+            text-align: center;
+            margin-top: 15px;
+            line-height: 1.5;
+        }
+
+        /* Özel imleç */
+        #customCursor {
+            position: fixed;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,255,255,0.4), rgba(0,255,255,0.1));
+            border: 2px solid #00ffff;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10000;
+            transition: left 0.005s linear, top 0.005s linear;
+            box-shadow: 0 0 20px rgba(0,255,255,0.5);
+        }
+
+        #customCursor::before {
+            content: "☝️";
+            position: absolute;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 24px;
+            filter: drop-shadow(0 0 5px cyan);
+        }
+
+        #customCursor.pinch-mode {
+            width: 55px;
+            height: 55px;
+            background: radial-gradient(circle, rgba(6,214,160,0.5), rgba(6,214,160,0.15));
+            border-color: #06d6a0;
+            box-shadow: 0 0 25px rgba(6,214,160,0.6);
+        }
+
+        #customCursor.pinch-mode::before {
+            content: "🖐️";
+            top: -35px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="customCursor"></div>
+
+<div class="app-container">
+    <!-- 3D Voxel Canvas -->
+    <div class="canvas-container">
+        <canvas id="voxelCanvas"></canvas>
+    </div>
+
+    <!-- Sağ Panel -->
+    <div class="camera-panel">
+        <div class="camera-wrapper">
+            <video id="videoElement" autoplay muted playsinline></video>
+            <div class="camera-overlay">
+                <div class="gesture-led" id="gestureLed"></div>
+                <div class="gesture-text" id="gestureText">☝️ Elinizi gösterin</div>
+                <div class="fps-counter" id="fpsCounter">FPS: 0</div>
+            </div>
+        </div>
+
+        <div class="controls-section">
+            <div class="mode-buttons">
+                <button class="mode-btn active" data-mode="move">✋ HAREKET</button>
+                <button class="mode-btn" data-mode="add">➕ EKLE</button>
+                <button class="mode-btn" data-mode="remove">➖ SİL</button>
+            </div>
+
+            <div class="info-panel">
+                <div class="info-row">
+                    <span class="info-label">📍 İmleç Pozisyonu</span>
+                    <span class="info-value" id="cursorPos">X:0 Y:0 Z:0</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">🎨 Aktif Mod</span>
+                    <span class="info-value" id="activeMode">HAREKET</span>
+                </div>
+                <div class="voxel-count" id="voxelCount">0</div>
+                <div class="action-buttons">
+                    <button class="action-btn" id="clearBtn">🗑️ TEMİZLE</button>
+                    <button class="action-btn" id="randomBtn">🎲 RANDOM</button>
+                    <button class="action-btn" id="resetCamBtn">🎥 KAMERA SIĞLA</button>
+                </div>
+            </div>
+
+            <div class="help-text">
+                ✊ YUMRUK = Mod değiştir<br>
+                🤏 TUT (Başparmak+İşaret) = Ekle / Sil / Döndür<br>
+                ☝️ İşaret = Gez
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MediaPipe Kütüphaneleri -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+
+<script>
+    (function(){
+        // ----------------------------- 3D VOXEL SİSTEMİ -----------------------------
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0a2e);
+        scene.fog = new THREE.FogExp2(0x0a0a2e, 0.008);
+
+        const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+        camera.position.set(12, 10, 15);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, canvas: document.getElementById('voxelCanvas') });
+        
+        // Işıklandırma
+        const ambientLight = new THREE.AmbientLight(0x404060);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(5, 10, 7);
+        scene.add(dirLight);
+        const backLight = new THREE.PointLight(0x4466ff, 0.5);
+        backLight.position.set(-3, 2, -5);
+        scene.add(backLight);
+        
+        // Grid yardımcı
+        const gridHelper = new THREE.GridHelper(20, 20, 0x00aaff, 0x335588);
+        gridHelper.position.y = -4;
+        scene.add(gridHelper);
+        
+        // Voxel boyutları (8x8x8)
+        const SIZE = 10;
+        const VOXEL_SIZE = 0.85;
+        const OFFSET = -4.5;
+        
+        let voxels = [];
+        let voxelMeshes = [];
+        
+        // Voxel verisi [x][y][z] = boolean
+        function initVoxels(){
+            voxels = Array(SIZE).fill().map(() => Array(SIZE).fill().map(() => Array(SIZE).fill(false)));
+            updateVoxelVisuals();
+        }
+        
+        // Renk haritası
+        function getVoxelColor(x, y, z){
+            const colors = [0xff3366, 0x33ff66, 0x33aaff, 0xffaa33, 0xaa33ff, 0xff66cc];
+            return colors[(x + y + z) % colors.length];
+        }
+        
+        function updateVoxelVisuals(){
+            // Eski mesh'leri temizle
+            voxelMeshes.forEach(mesh => scene.remove(mesh));
+            voxelMeshes = [];
+            
+            let count = 0;
+            for(let x = 0; x < SIZE; x++){
+                for(let y = 0; y < SIZE; y++){
+                    for(let z = 0; z < SIZE; z++){
+                        if(voxels[x][y][z]){
+                            count++;
+                            const geometry = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+                            const material = new THREE.MeshStandardMaterial({
+                                color: getVoxelColor(x, y, z),
+                                emissive: 0x221133,
+                                roughness: 0.3,
+                                metalness: 0.7
+                            });
+                            const cube = new THREE.Mesh(geometry, material);
+                            cube.position.set(OFFSET + x * VOXEL_SIZE, OFFSET + y * VOXEL_SIZE, OFFSET + z * VOXEL_SIZE);
+                            scene.add(cube);
+                            voxelMeshes.push(cube);
+                        }
+                    }
+                }
+            }
+            document.getElementById('voxelCount').innerText = count;
+        }
+        
+        function addVoxel(x, y, z){
+            if(x >= 0 && x < SIZE && y >= 0 && y < SIZE && z >= 0 && z < SIZE){
+                if(!voxels[x][y][z]){
+                    voxels[x][y][z] = true;
+                    updateVoxelVisuals();
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        function removeVoxel(x, y, z){
+            if(x >= 0 && x < SIZE && y >= 0 && y < SIZE && z >= 0 && z < SIZE){
+                if(voxels[x][y][z]){
+                    voxels[x][y][z] = false;
+                    updateVoxelVisuals();
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        function clearAllVoxels(){
+            for(let x = 0; x < SIZE; x++){
+                for(let y = 0; y < SIZE; y++){
+                    for(let z = 0; z < SIZE; z++){
+                        voxels[x][y][z] = false;
+                    }
+                }
+            }
+            updateVoxelVisuals();
+        }
+        
+        function randomFill(){
+            for(let x = 0; x < SIZE; x++){
+                for(let y = 0; y < SIZE; y++){
+                    for(let z = 0; z < SIZE; z++){
+                        if(Math.random() > 0.85){
+                            voxels[x][y][z] = true;
+                        }
+                    }
+                }
+            }
+            updateVoxelVisuals();
+        }
+        
+        // İmleç göstergesi (3D'de)
+        let cursorMesh = null;
+        function createCursorMesh(){
+            if(cursorMesh) scene.remove(cursorMesh);
+            const geometry = new THREE.SphereGeometry(0.35, 16, 16);
+            const material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x0088aa });
+            cursorMesh = new THREE.Mesh(geometry, material);
+            scene.add(cursorMesh);
+        }
+        
+        function updateCursor3D(x, y, z){
+            if(!cursorMesh) createCursorMesh();
+            cursorMesh.position.set(OFFSET + x * VOXEL_SIZE, OFFSET + y * VOXEL_SIZE, OFFSET + z * VOXEL_SIZE);
+        }
+        
+        // Kamera kontrolü (döndürme)
+        let cameraAngleX = 0.6;
+        let cameraAngleY = 0.8;
+        let cameraDistance = 18;
+        
+        function updateCameraPosition(){
+            const x = Math.sin(cameraAngleY) * Math.cos(cameraAngleX) * cameraDistance;
+            const y = Math.sin(cameraAngleX) * cameraDistance;
+            const z = Math.cos(cameraAngleY) * Math.cos(cameraAngleX) * cameraDistance;
+            camera.position.set(x, y, z);
+            camera.lookAt(0, 0, 0);
+        }
+        
+        function rotateCamera(dx, dy){
+            cameraAngleY += dx * 0.01;
+            cameraAngleX += dy * 0.01;
+            cameraAngleX = Math.max(0.2, Math.min(1.4, cameraAngleX));
+            updateCameraPosition();
+        }
+        
+        function resetCamera(){
+            cameraAngleX = 0.6;
+            cameraAngleY = 0.8;
+            cameraDistance = 18;
+            updateCameraPosition();
+        }
+        
+        initVoxels();
+        createCursorMesh();
+        updateCameraPosition();
+        
+        // Canvas yeniden boyutlandırma
+        function resizeCanvas(){
+            const container = document.querySelector('.canvas-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            renderer.setSize(w, h);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        setTimeout(resizeCanvas, 100);
+        
+        // Animasyon döngüsü
+        function animate(){
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+        animate();
+        
+        // ----------------------------- EL TAKİBİ & GESTURE -----------------------------
+        let currentMode = "move"; // move, add, remove
+        let cursorX = 5, cursorY = 5, cursorZ = 5;
+        let pinchActive = false;
+        let lastActionTime = 0;
+        const ACTION_COOLDOWN = 200; // ms
+        
+        let lastPinchStart = 0;
+        let isDraggingCamera = false;
+        
+        // UI Elemanları
+        const gestureLed = document.getElementById('gestureLed');
+        const gestureText = document.getElementById('gestureText');
+        const fpsSpan = document.getElementById('fpsCounter');
+        const cursorPosSpan = document.getElementById('cursorPos');
+        const activeModeSpan = document.getElementById('activeMode');
+        const customCursor = document.getElementById('customCursor');
+        
+        // Kamera
+        const video = document.getElementById('videoElement');
+        let hands = null;
+        let cameraStream = null;
+        let fpsCounter = 0;
+        let lastFpsUpdate = performance.now();
+        
+        function updateFPS(){
+            fpsCounter++;
+            const now = performance.now();
+            if(now - lastFpsUpdate >= 1000){
+                fpsSpan.innerText = `FPS: ${fpsCounter}`;
+                fpsCounter = 0;
+                lastFpsUpdate = now;
+            }
+            requestAnimationFrame(updateFPS);
+        }
+        updateFPS();
+        
+        // Parmak durumu hesaplama
+        function getFingerState(landmarks){
+            const thumbTip = landmarks[4];
+            const indexTip = landmarks[8];
+            const middleTip = landmarks[12];
+            const ringTip = landmarks[16];
+            const pinkyTip = landmarks[20];
+            
+            const thumbMCP = landmarks[2];
+            const indexMCP = landmarks[5];
+            const middleMCP = landmarks[9];
+            const ringMCP = landmarks[13];
+            const pinkyMCP = landmarks[17];
+            
+            const thumbUp = thumbTip.x > thumbMCP.x;
+            const indexUp = indexTip.y < indexMCP.y;
+            const middleUp = middleTip.y < middleMCP.y;
+            const ringUp = ringTip.y < ringMCP.y;
+            const pinkyUp = pinkyTip.y < pinkyMCP.y;
+            
+            const totalUp = (thumbUp?1:0) + (indexUp?1:0) + (middleUp?1:0) + (ringUp?1:0) + (pinkyUp?1:0);
+            
+            // Pinch: başparmak ve işaret yakın
+            const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+            const isPinch = pinchDist < 0.05 && indexUp && thumbUp;
+            
+            return { totalUp, indexUp, thumbUp, isPinch };
+        }
+        
+        // Ekran koordinatlarından voxel koordinatına
+        function screenToVoxel(x, y, w, h){
+            const nx = x / w;
+            const ny = y / h;
+            const vx = Math.floor(nx * SIZE);
+            const vy = Math.floor(ny * SIZE);
+            return { x: Math.min(SIZE-1, Math.max(0, vx)), y: Math.min(SIZE-1, Math.max(0, vy)), z: cursorZ };
+        }
+        
+        // Hareket ile ilgili aksiyonlar
+        function performAction(x, y, z){
+            if(currentMode === "add"){
+                if(addVoxel(x, y, z)){
+                    gestureText.innerText = "✅ VOXEL EKLENDI";
+                    gestureLed.classList.add('active');
+                    setTimeout(() => {
+                        if(!pinchActive) gestureLed.classList.remove('active');
+                    }, 200);
+                }
+            } else if(currentMode === "remove"){
+                if(removeVoxel(x, y, z)){
+                    gestureText.innerText = "🗑️ VOXEL SILINDI";
+                    gestureLed.classList.add('active');
+                    setTimeout(() => {
+                        if(!pinchActive) gestureLed.classList.remove('active');
+                    }, 200);
+                }
+            }
+        }
+        
+        // Mod değiştirme
+        function setMode(mode){
+            currentMode = mode;
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                if(btn.dataset.mode === mode) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+            const modeNames = { move: "HAREKET", add: "EKLE", remove: "SİL" };
+            activeModeSpan.innerText = modeNames[mode];
+            gestureText.innerText = `${modeNames[mode]} MODU`;
+        }
+        
+        // UI butonları
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => setMode(btn.dataset.mode));
+        });
+        document.getElementById('clearBtn').addEventListener('click', () => { clearAllVoxels(); gestureText.innerText = "🗑️ Tümü temizlendi"; });
+        document.getElementById('randomBtn').addEventListener('click', () => { randomFill(); gestureText.innerText = "🎲 Random dolduruldu"; });
+        document.getElementById('resetCamBtn').addEventListener('click', () => { resetCamera(); gestureText.innerText = "🎥 Kamera sıfırlandı"; });
+        
+        // MediaPipe başlat
+        async function initHandTracking(){
+            try{
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                await video.play();
+                
+                hands = new Hands({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                });
+                hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.6,
+                    minTrackingConfidence: 0.6
+                });
+                
+                hands.onResults((results) => {
+                    if(results.multiHandLandmarks && results.multiHandLandmarks.length > 0){
+                        const hand = results.multiHandLandmarks[0];
+                        const indexTip = hand[8];
+                        const videoW = video.videoWidth;
+                        const videoH = video.videoHeight;
+                        
+                        if(videoW > 0 && videoH > 0){
+                            // İmleç pozisyonu (aynalı)
+                            let screenX = (1 - indexTip.x) * window.innerWidth;
+                            let screenY = indexTip.y * window.innerHeight;
+                            screenX = Math.min(window.innerWidth - 10, Math.max(10, screenX));
+                            screenY = Math.min(window.innerHeight - 10, Math.max(10, screenY));
+                            
+                            customCursor.style.left = screenX + 'px';
+                            customCursor.style.top = screenY + 'px';
+                            
+                            // Voxel koordinatı
+                            const nx = 1 - indexTip.x;
+                            const ny = indexTip.y;
+                            cursorX = Math.floor(nx * SIZE);
+                            cursorY = Math.floor(ny * SIZE);
+                            cursorX = Math.min(SIZE-1, Math.max(0, cursorX));
+                            cursorY = Math.min(SIZE-1, Math.max(0, cursorY));
+                            
+                            updateCursor3D(cursorX, cursorY, cursorZ);
+                            cursorPosSpan.innerText = `X:${cursorX} Y:${cursorY} Z:${cursorZ}`;
+                            
+                            // Parmak durumu
+                            const { totalUp, isPinch, indexUp } = getFingerState(hand);
+                            const now = Date.now();
+                            
+                            // Yumruk kontrolü (tüm parmaklar kapalı)
+                            const isFist = totalUp === 0;
+                            
+                            if(isFist && now - lastActionTime > 300){
+                                // Mod değiştir
+                                const modes = ["move", "add", "remove"];
+                                const nextIdx = (modes.indexOf(currentMode) + 1) % 3;
+                                setMode(modes[nextIdx]);
+                                lastActionTime = now;
+                                gestureLed.classList.add('active');
+                                setTimeout(() => { if(!pinchActive) gestureLed.classList.remove('active'); }, 300);
+                                gestureText.innerText = `🔄 ${activeModeSpan.innerText} MODU`;
+                            }
+                            else if(isPinch){
+                                if(!pinchActive){
+                                    pinchActive = true;
+                                    customCursor.classList.add('pinch-mode');
+                                    gestureLed.classList.add('active');
+                                    lastPinchStart = now;
+                                    
+                                    if(currentMode === "move"){
+                                        gestureText.innerText = "🖐️ Döndürme modu";
+                                    } else {
+                                        gestureText.innerText = currentMode === "add" ? "➕ Voxel ekleniyor..." : "➖ Voxel siliniyor...";
+                                        performAction(cursorX, cursorY, cursorZ);
+                                    }
+                                } else if(currentMode === "move" && pinchActive){
+                                    // Kamera döndürme
+                                    const dx = indexTip.x - (hand[8].x);
+                                    const dy = indexTip.y - (hand[8].y);
+                                    if(Math.abs(dx) > 0.005 || Math.abs(dy) > 0.005){
+                                        rotateCamera(dx * 100, dy * 100);
+                                    }
+                                } else if(currentMode !== "move" && pinchActive && now - lastPinchStart > 80){
+                                    // Sürekli ekleme/silme için tekrar
+                                    if(now - lastActionTime > ACTION_COOLDOWN){
+                                        performAction(cursorX, cursorY, cursorZ);
+                                        lastActionTime = now;
+                                    }
+                                }
+                            }
+                            else {
+                                if(pinchActive){
+                                    pinchActive = false;
+                                    customCursor.classList.remove('pinch-mode');
+                                    if(currentMode === "move"){
+                                        gestureText.innerText = "✋ HAREKET MODU";
+                                    } else {
+                                        gestureText.innerText = currentMode === "add" ? "➕ EKLE MODU" : "➖ SİL MODU";
+                                    }
+                                    gestureLed.classList.remove('active');
+                                } else {
+                                    gestureText.innerText = currentMode === "move" ? "☝️ İşaret ile gez | Tut ve döndür" : (currentMode === "add" ? "➕ Tut ve ekle" : "➖ Tut ve sil");
+                                }
+                            }
+                        }
+                    } else {
+                        customCursor.classList.remove('pinch-mode');
+                        pinchActive = false;
+                        gestureLed.classList.remove('active');
+                        gestureText.innerText = "☝️ Elinizi gösterin";
+                    }
+                });
+                
+                const cameraUtils = new Camera(video, {
+                    onFrame: async () => {
+                        if(hands) await hands.send({ image: video });
+                    },
+                    width: 640,
+                    height: 480
+                });
+                cameraUtils.start();
+                
+            } catch(e){
+                gestureText.innerText = "❌ Kamera izni gerekli";
+                console.error(e);
+            }
+        }
+        
+        initHandTracking();
+        
+        // Custom cursor gizleme
+        document.body.style.cursor = 'none';
+        
+    })();
+</script>
+</body>
+</html>
